@@ -474,7 +474,8 @@ routes.accounts = guard(async () => {
   await loadData();
   view.innerHTML = `<div class="page-head"><div><h1>Boîtes mail connectées</h1>
       <p class="muted">Les mots de passe sont chiffrés (AES-256-GCM) avant d'être enregistrés.</p></div>
-    <button class="primary" id="add-acc">+ Connecter une boîte</button></div>
+    <div class="row"><button class="small" id="sync-all">⟳ Resynchroniser tout</button>
+    <button class="primary" id="add-acc">+ Connecter une boîte</button></div></div>
     <div class="grid cols-2">${state.accounts.map((a) => `<div class="card">
       <div class="row" style="justify-content:space-between">
         <h2><span class="dot" style="background:${esc(a.color)}"></span> ${esc(a.name)}</h2>
@@ -490,6 +491,10 @@ routes.accounts = guard(async () => {
     || '<div class="card muted">Aucune boîte connectée pour le moment.</div>'}</div>`;
 
   $('#add-acc').addEventListener('click', () => accountModal(null));
+  $('#sync-all').addEventListener('click', guard(async () => {
+    await api('/accounts/sync-all', { method: 'POST' });
+    toast('Synchronisation de toutes les boîtes lancée.'); location.hash = '#/jobs';
+  }));
   view.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => accountModal(accountById(b.dataset.edit))));
   view.querySelectorAll('[data-test]').forEach((b) => b.addEventListener('click', guard(async () => {
     b.textContent = 'Test…';

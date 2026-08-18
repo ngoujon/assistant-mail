@@ -130,6 +130,12 @@ app.post('/api/accounts/:id/sync', wrap((req, res) => {
   res.json(createJob('sync', `Synchronisation ${acc.email}`, { accountId: acc.id }));
 }));
 
+app.post('/api/accounts/sync-all', wrap((req, res) => {
+  const accounts = db.prepare('SELECT id, email FROM accounts ORDER BY id').all();
+  const jobs = accounts.map((acc) => createJob('sync', `Synchronisation ${acc.email}`, { accountId: acc.id }));
+  res.json({ ok: true, jobs });
+}));
+
 /* ---------------- Dossiers ---------------- */
 app.get('/api/folders', wrap((req, res) => {
   const where = req.query.accountId ? 'WHERE account_id = ?' : '';
@@ -292,6 +298,14 @@ app.post('/api/chat/plan/execute', wrap((req, res) => {
 /* ---------------- Interface ---------------- */
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
+
+/* ---------------- Synchronisation automatique périodique ---------------- */
+const AUTO_SYNC_INTERVAL_MS = 10 * 60 * 1000;
+function autoSyncAll() {
+  const accounts = db.prepare('SELECT id, email FROM accounts ORDER BY id').all();
+  for (const acc of accounts) createJob('sync', `Synchronisation automatique ${acc.email}`, { accountId: acc.id });
+}
+setInterval(autoSyncAll, AUTO_SYNC_INTERVAL_MS);
 
 recoverJobs();
 app.listen(PORT, '0.0.0.0', () => {
