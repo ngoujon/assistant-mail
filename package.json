@@ -1,0 +1,23 @@
+{
+  "name": "mailzen",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Client mail multi-comptes IMAP/SMTP avec agent local Ollama",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "imapflow": "^1.0.171",
+    "mailparser": "^3.7.2",
+    "nodemailer": "^6.9.16"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

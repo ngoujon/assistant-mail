@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MailZen</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📬</text></svg>">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="login" class="login hidden">
+  <form id="login-form" class="card">
+    <h1>📬 MailZen</h1>
+    <p class="muted">Accès protégé par mot de passe.</p>
+    <input type="password" id="login-password" placeholder="Mot de passe" autocomplete="current-password">
+    <button class="primary" type="submit">Se connecter</button>
+    <div id="login-error" class="error"></div>
+  </form>
+</div>
+
+<div id="app" class="app hidden">
+  <nav class="sidebar">
+    <div class="brand">📬 <span>MailZen</span></div>
+    <a href="#/mail" data-route="mail">✉️ Messages</a>
+    <a href="#/folders" data-route="folders">🗂️ Dossiers</a>
+    <a href="#/jobs" data-route="jobs">⚙️ Traitements <span id="jobs-badge" class="badge hidden">0</span></a>
+    <a href="#/chat" data-route="chat">🤖 Assistant</a>
+    <a href="#/backups" data-route="backups">💾 Sauvegardes</a>
+    <a href="#/accounts" data-route="accounts">🔌 Comptes</a>
+    <div class="spacer"></div>
+    <div id="ollama-status" class="ollama muted">Ollama : vérification…</div>
+  </nav>
+  <main id="view"></main>
+</div>
+
+<div id="modal" class="modal hidden"><div class="modal-body card" id="modal-content"></div></div>
+<div id="toast" class="toast hidden"></div>
+<script src="/app.js"></script>
+</body>
+</html>
