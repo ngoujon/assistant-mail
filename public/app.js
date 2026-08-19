@@ -517,31 +517,32 @@ routes.accounts = guard(async () => {
 function accountModal(acc) {
   const v = (k, d = '') => esc(acc?.[k] ?? d);
   modal(`<h2>${acc ? 'Modifier la boîte' : 'Connecter une boîte mail'}</h2>
+    <div class="field"><label>Adresse e-mail</label><input id="a-email" value="${v('email')}"></div>
+    <div class="field"><label>Mot de passe${acc ? ' (laisser vide pour conserver)' : ''}</label><input id="a-ipw" type="password"></div>
     <div class="grid cols-2">
-      <div class="field"><label>Nom affiché</label><input id="a-name" value="${v('name')}"></div>
-      <div class="field"><label>Adresse e-mail</label><input id="a-email" value="${v('email')}"></div>
       <div class="field"><label>Serveur IMAP</label><input id="a-ih" value="${v('imap_host')}" placeholder="imap.exemple.com"></div>
-      <div class="field"><label>Port IMAP</label><input id="a-ip" type="number" value="${v('imap_port', 993)}"></div>
-      <div class="field"><label>Identifiant IMAP</label><input id="a-iu" value="${v('imap_user')}"></div>
-      <div class="field"><label>Mot de passe IMAP${acc ? ' (laisser vide pour conserver)' : ''}</label><input id="a-ipw" type="password"></div>
+      <div class="field"><label>Serveur SMTP</label><input id="a-sh" value="${v('smtp_host')}" placeholder="smtp.exemple.com"></div>
     </div>
     <div class="row" style="margin:4px 0 12px">
       <button type="button" class="small" id="a-detect">🔍 Détecter et vérifier automatiquement</button>
       <span id="a-detect-status" class="muted"></span>
     </div>
-    <p class="muted" style="margin:0 0 8px">Saisissez l'adresse e-mail et le mot de passe ci-dessus, puis cliquez sur « Détecter ». Si ça échoue, complétez les champs serveur ci-dessous manuellement.</p>
-    <div class="grid cols-2">
-      <div class="field"><label>Serveur SMTP</label><input id="a-sh" value="${v('smtp_host')}" placeholder="smtp.exemple.com"></div>
-      <div class="field"><label>Port SMTP</label><input id="a-sp" type="number" value="${v('smtp_port', 587)}"></div>
-      <div class="field"><label>Identifiant SMTP</label><input id="a-su" value="${v('smtp_user')}"></div>
-      <div class="field"><label>Mot de passe SMTP${acc ? ' (vide = inchangé)' : ' (vide = identique à IMAP)'}</label><input id="a-spw" type="password"></div>
-      <div class="field"><label>Couleur</label><input id="a-color" type="color" value="${v('color', '#6c8cff')}"></div>
-    </div>
-    <div class="row">
-      <label><input type="checkbox" id="a-is" ${acc ? (acc.imap_secure ? 'checked' : '') : 'checked'}> IMAP en TLS (993)</label>
-      <label><input type="checkbox" id="a-ss" ${acc?.smtp_secure ? 'checked' : ''}> SMTP en TLS direct (465)</label>
-      <label><input type="checkbox" id="a-cert" ${acc?.allow_invalid_cert ? 'checked' : ''}> accepter un certificat auto-signé</label>
-    </div>
+    <details id="a-advanced">
+      <summary class="muted">Options avancées</summary>
+      <div class="grid cols-2" style="margin-top:8px">
+        <div class="field"><label>Nom affiché</label><input id="a-name" value="${v('name')}"></div>
+        <div class="field"><label>Couleur</label><input id="a-color" type="color" value="${v('color', '#6c8cff')}"></div>
+        <div class="field"><label>Port IMAP</label><input id="a-ip" type="number" value="${v('imap_port', 993)}"></div>
+        <div class="field"><label>Port SMTP</label><input id="a-sp" type="number" value="${v('smtp_port', 587)}"></div>
+        <div class="field"><label>Identifiant IMAP</label><input id="a-iu" value="${v('imap_user')}"></div>
+        <div class="field"><label>Identifiant SMTP</label><input id="a-su" value="${v('smtp_user')}"></div>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="a-is" ${acc ? (acc.imap_secure ? 'checked' : '') : 'checked'}> IMAP en TLS (993)</label>
+        <label><input type="checkbox" id="a-ss" ${acc?.smtp_secure ? 'checked' : ''}> SMTP en TLS direct (465)</label>
+        <label><input type="checkbox" id="a-cert" ${acc?.allow_invalid_cert ? 'checked' : ''}> accepter un certificat auto-signé</label>
+      </div>
+    </details>
     <div class="row" style="margin-top:12px"><button class="primary" id="a-go">${acc ? 'Enregistrer' : 'Connecter et synchroniser'}</button>
       <button onclick="closeModal()">Annuler</button></div>`);
   $('#a-email').addEventListener('blur', () => { if (!$('#a-iu').value) $('#a-iu').value = $('#a-email').value; });
@@ -556,7 +557,7 @@ function accountModal(acc) {
     try {
       const r = await api('/accounts/detect', { method: 'POST', body: {
         email, imap_pass: pass, imap_user: $('#a-iu').value || email,
-        smtp_pass: $('#a-spw').value || pass, smtp_user: $('#a-su').value || email
+        smtp_pass: pass, smtp_user: $('#a-su').value || email
       } });
       if (r.found) {
         $('#a-ih').value = r.imap_host; $('#a-ip').value = r.imap_port; $('#a-is').checked = r.imap_secure;
@@ -578,11 +579,11 @@ function accountModal(acc) {
   }));
   $('#a-go').addEventListener('click', guard(async () => {
     const body = {
-      name: $('#a-name').value, email: $('#a-email').value, color: $('#a-color').value,
+      name: $('#a-name').value || $('#a-email').value, email: $('#a-email').value, color: $('#a-color').value,
       imap_host: $('#a-ih').value, imap_port: Number($('#a-ip').value), imap_secure: $('#a-is').checked,
       imap_user: $('#a-iu').value || $('#a-email').value, imap_pass: $('#a-ipw').value,
       smtp_host: $('#a-sh').value, smtp_port: Number($('#a-sp').value), smtp_secure: $('#a-ss').checked,
-      smtp_user: $('#a-su').value, smtp_pass: $('#a-spw').value, allow_invalid_cert: $('#a-cert').checked
+      smtp_user: $('#a-su').value, smtp_pass: $('#a-ipw').value, allow_invalid_cert: $('#a-cert').checked
     };
     const res = acc ? await api(`/accounts/${acc.id}`, { method: 'PUT', body }) : await api('/accounts', { method: 'POST', body });
     closeModal();
