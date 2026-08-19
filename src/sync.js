@@ -62,7 +62,7 @@ export async function syncFolderMessages(accountId, folderPath, { onProgress, sh
       const known = new Set(knownRows.map((r) => r.uid));
 
       if (client.mailbox.exists === 0) {
-        db.prepare('UPDATE folders SET synced_at = datetime("now"), unseen = 0 WHERE id = ?').run(folder.id);
+        db.prepare("UPDATE folders SET synced_at = datetime('now'), unseen = 0 WHERE id = ?").run(folder.id);
         return { imported: 0, removed: knownRows.length };
       }
 
@@ -125,7 +125,7 @@ export async function syncFolderMessages(accountId, folderPath, { onProgress, sh
       }
 
       const unseen = db.prepare('SELECT COUNT(*) c FROM messages WHERE folder_id = ? AND seen = 0').get(folder.id).c;
-      db.prepare('UPDATE folders SET synced_at = datetime("now"), unseen = ?, total = ? WHERE id = ?')
+      db.prepare("UPDATE folders SET synced_at = datetime('now'), unseen = ?, total = ? WHERE id = ?")
         .run(unseen, serverUids.length, folder.id);
       return { imported, removed: removedUids.length };
     } finally {
