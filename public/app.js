@@ -217,10 +217,10 @@ routes.folders = guard(async () => {
     <button class="primary" id="new-folder">+ Nouveau dossier</button></div>
     ${state.accounts.map((acc) => `<div class="card" style="margin-bottom:14px">
       <h2><span class="dot" style="background:${esc(acc.color)}"></span> ${esc(acc.email)}</h2>
-      <table><thead><tr><th>Dossier</th><th>Messages</th><th>Non lus</th><th>Dernière synchro</th><th></th></tr></thead><tbody>
+      <table><thead><tr><th>Dossier</th><th class="col-fit">Messages</th><th class="col-fit">Non lus</th><th class="col-fit">Dernière synchro</th><th class="col-fit"></th></tr></thead><tbody>
       ${state.folders.filter((f) => f.account_id === acc.id).map((f) => `<tr>
-        <td>${esc(f.path)}</td><td>${f.total || 0}</td><td>${f.unseen || 0}</td><td class="muted">${fmtDate(f.synced_at)}</td>
-        <td class="row" style="justify-content:flex-end">
+        <td>${esc(f.path)}</td><td class="col-fit">${f.total || 0}</td><td class="col-fit">${f.unseen || 0}</td><td class="muted col-fit">${fmtDate(f.synced_at)}</td>
+        <td class="row col-fit" style="justify-content:flex-end">
           <button class="small" data-move="${acc.id}|${esc(f.path)}">Déplacer</button>
           <button class="small" data-rename="${acc.id}|${esc(f.path)}">Renommer</button>
           <button class="small danger" data-del="${acc.id}|${esc(f.path)}">Supprimer</button></td></tr>`).join('')
@@ -269,7 +269,7 @@ routes.jobs = guard(async () => {
   view.innerHTML = `<div class="page-head"><div><h1>Traitements en cours</h1>
     <p class="muted">Synchronisations, déplacements, sauvegardes et rangements — avec journal détaillé.</p></div>
     <button id="refresh-jobs">Actualiser</button></div>
-    <div class="card"><table><thead><tr><th>#</th><th>Traitement</th><th>Étape</th><th>Avancement</th><th>État</th><th></th></tr></thead>
+    <div class="card"><table><thead><tr><th class="col-fit">#</th><th>Traitement</th><th>Étape</th><th>Avancement</th><th class="col-fit">État</th><th class="col-fit"></th></tr></thead>
     <tbody id="jobs-body">${state.jobs.map(jobRow).join('') || '<tr><td colspan="6" class="muted">Aucun traitement pour le moment.</td></tr>'}</tbody></table></div>
     <div id="job-detail"></div>`;
   $('#refresh-jobs').addEventListener('click', routes.jobs);
@@ -278,11 +278,11 @@ routes.jobs = guard(async () => {
 
 function jobRow(job) {
   const pct = job.total ? Math.round((job.done / job.total) * 100) : (job.status === 'termine' ? 100 : 0);
-  return `<tr data-job="${job.id}"><td>${job.id}</td><td>${esc(job.label)}</td>
+  return `<tr data-job="${job.id}"><td class="col-fit">${job.id}</td><td>${esc(job.label)}</td>
     <td class="muted">${esc(job.phase || '—')}</td>
     <td><div class="bar"><div style="width:${pct}%"></div></div><span class="muted">${job.done}/${job.total || '?'}${job.failed ? ` · <span class="error">${job.failed} échec(s)</span>` : ''}</span></td>
-    <td><span class="status ${job.status}">${JOB_LABEL[job.status] || job.status}</span></td>
-    <td class="row" style="justify-content:flex-end"><button class="small" data-detail="${job.id}">Détail</button>
+    <td class="col-fit"><span class="status ${job.status}">${JOB_LABEL[job.status] || job.status}</span></td>
+    <td class="row col-fit" style="justify-content:flex-end"><button class="small" data-detail="${job.id}">Détail</button>
       ${['en_cours', 'en_attente'].includes(job.status) ? `<button class="small danger" data-cancel="${job.id}">Arrêter</button>` : ''}</td></tr>`;
 }
 
@@ -294,9 +294,9 @@ function bindJobRows() {
       <h2 style="margin-top:12px">Journal</h2>
       <pre class="muted" style="max-height:220px;overflow:auto">${job.logs.map((l) => `[${l.created_at}] ${l.level === 'error' ? '❌' : l.level === 'warn' ? '⚠️' : '•'} ${esc(l.message)}`).join('\n') || 'Aucun message.'}</pre>
       <h2 style="margin-top:12px">Éléments (${job.items.length})</h2>
-      <table><thead><tr><th>Élément</th><th>UID source</th><th>UID destination</th><th>État</th><th>Détail</th></tr></thead><tbody>
-      ${job.items.slice(-200).map((i) => `<tr><td>${esc(i.ref)}</td><td>${i.src_uid ?? '—'}</td><td>${i.dst_uid ?? '—'}</td>
-        <td><span class="status ${i.status === 'echec' ? 'echec' : 'termine'}">${esc(i.status)}</span></td>
+      <table><thead><tr><th>Élément</th><th class="col-fit">UID source</th><th class="col-fit">UID destination</th><th class="col-fit">État</th><th>Détail</th></tr></thead><tbody>
+      ${job.items.slice(-200).map((i) => `<tr><td>${esc(i.ref)}</td><td class="col-fit">${i.src_uid ?? '—'}</td><td class="col-fit">${i.dst_uid ?? '—'}</td>
+        <td class="col-fit"><span class="status ${i.status === 'echec' ? 'echec' : 'termine'}">${esc(i.status)}</span></td>
         <td class="muted">${esc(i.detail || '')}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">Aucun élément.</td></tr>'}
       </tbody></table></div>`;
   })));
@@ -426,11 +426,11 @@ routes.backups = guard(async () => {
   view.innerHTML = `<div class="page-head"><div><h1>Sauvegardes et restauration</h1>
       <p class="muted">Chaque sauvegarde contient les messages bruts (.eml). Une restauration réinjecte les messages manquants sans créer de doublon.</p></div>
     <button class="primary" id="new-backup">+ Nouvelle sauvegarde</button></div>
-    <div class="card"><table><thead><tr><th>#</th><th>Boîte</th><th>Périmètre</th><th>Messages</th><th>Taille</th><th>Date</th><th>État</th><th></th></tr></thead><tbody>
-    ${backups.map((b) => `<tr><td>${b.id}</td><td>${esc(b.account_label)}</td><td>${esc(b.scope)}</td>
-      <td>${b.message_count}</td><td>${fmtSize(b.bytes)}</td><td class="muted">${fmtDate(b.created_at)}</td>
-      <td><span class="status ${esc(b.status)}">${esc(b.status)}</span></td>
-      <td class="row" style="justify-content:flex-end">
+    <div class="card"><table><thead><tr><th class="col-fit">#</th><th>Boîte</th><th>Périmètre</th><th class="col-fit">Messages</th><th class="col-fit">Taille</th><th class="col-fit">Date</th><th class="col-fit">État</th><th class="col-fit"></th></tr></thead><tbody>
+    ${backups.map((b) => `<tr><td class="col-fit">${b.id}</td><td>${esc(b.account_label)}</td><td>${esc(b.scope)}</td>
+      <td class="col-fit">${b.message_count}</td><td class="col-fit">${fmtSize(b.bytes)}</td><td class="muted col-fit">${fmtDate(b.created_at)}</td>
+      <td class="col-fit"><span class="status ${esc(b.status)}">${esc(b.status)}</span></td>
+      <td class="row col-fit" style="justify-content:flex-end">
         <button class="small primary" data-restore="${b.id}">Restaurer</button>
         <button class="small danger" data-delbk="${b.id}">Supprimer</button></td></tr>`).join('')
     || '<tr><td colspan="8" class="muted">Aucune sauvegarde.</td></tr>'}</tbody></table></div>`;
