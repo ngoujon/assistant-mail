@@ -524,6 +524,13 @@ function accountModal(acc) {
       <div class="field"><label>Port IMAP</label><input id="a-ip" type="number" value="${v('imap_port', 993)}"></div>
       <div class="field"><label>Identifiant IMAP</label><input id="a-iu" value="${v('imap_user')}"></div>
       <div class="field"><label>Mot de passe IMAP${acc ? ' (laisser vide pour conserver)' : ''}</label><input id="a-ipw" type="password"></div>
+    </div>
+    <div class="row" style="margin:4px 0 12px">
+      <button type="button" class="small" id="a-detect">🔍 Détecter et vérifier automatiquement</button>
+      <span id="a-detect-status" class="muted"></span>
+    </div>
+    <p class="muted" style="margin:0 0 8px">Saisissez l'adresse e-mail et le mot de passe ci-dessus, puis cliquez sur « Détecter ». Si ça échoue, complétez les champs serveur ci-dessous manuellement.</p>
+    <div class="grid cols-2">
       <div class="field"><label>Serveur SMTP</label><input id="a-sh" value="${v('smtp_host')}" placeholder="smtp.exemple.com"></div>
       <div class="field"><label>Port SMTP</label><input id="a-sp" type="number" value="${v('smtp_port', 587)}"></div>
       <div class="field"><label>Identifiant SMTP</label><input id="a-su" value="${v('smtp_user')}"></div>
@@ -538,6 +545,37 @@ function accountModal(acc) {
     <div class="row" style="margin-top:12px"><button class="primary" id="a-go">${acc ? 'Enregistrer' : 'Connecter et synchroniser'}</button>
       <button onclick="closeModal()">Annuler</button></div>`);
   $('#a-email').addEventListener('blur', () => { if (!$('#a-iu').value) $('#a-iu').value = $('#a-email').value; });
+  $('#a-detect').addEventListener('click', guard(async () => {
+    const email = $('#a-email').value.trim();
+    const pass = $('#a-ipw').value;
+    const status = $('#a-detect-status');
+    if (!email) return toast('Renseignez d\'abord l\'adresse e-mail.', true);
+    if (!pass) return toast('Renseignez le mot de passe IMAP pour vérifier la connexion.', true);
+    const btn = $('#a-detect');
+    btn.disabled = true; status.textContent = 'Détection en cours…';
+    try {
+      const r = await api('/accounts/detect', { method: 'POST', body: {
+        email, imap_pass: pass, imap_user: $('#a-iu').value || email,
+        smtp_pass: $('#a-spw').value || pass, smtp_user: $('#a-su').value || email
+      } });
+      if (r.found) {
+        $('#a-ih').value = r.imap_host; $('#a-ip').value = r.imap_port; $('#a-is').checked = r.imap_secure;
+        $('#a-sh').value = r.smtp_host; $('#a-sp').value = r.smtp_port; $('#a-ss').checked = r.smtp_secure;
+        if (!$('#a-iu').value) $('#a-iu').value = email;
+        if (!$('#a-su').value) $('#a-su').value = email;
+        status.textContent = r.smtp_ok === false ? `IMAP vérifié, SMTP en échec (${r.smtp_error})` : 'Connexion vérifiée avec succès.';
+        toast(r.smtp_ok === false ? `Paramètres IMAP détectés, mais le test SMTP a échoué : ${r.smtp_error}` : 'Paramètres détectés et connexion vérifiée !', r.smtp_ok === false);
+      } else {
+        status.textContent = 'Détection impossible, saisie manuelle requise.';
+        toast('Détection automatique impossible pour ce fournisseur. Merci de saisir les paramètres manuellement.', true);
+      }
+    } catch (err) {
+      status.textContent = '';
+      toast(`Détection impossible : ${err.message}`, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }));
   $('#a-go').addEventListener('click', guard(async () => {
     const body = {
       name: $('#a-name').value, email: $('#a-email').value, color: $('#a-color').value,

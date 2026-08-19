@@ -74,6 +74,36 @@ export async function testSmtp(acc) {
   return true;
 }
 
+/**
+ * Variantes de test utilisées pour l'auto-détection : les identifiants sont
+ * fournis en clair (formulaire, pas encore enregistrés/chiffrés en base).
+ */
+export async function testImapRaw({ host, port, secure, user, pass, allowInvalidCert = false }) {
+  const client = new ImapFlow({
+    host, port, secure,
+    auth: { user, pass },
+    logger: false,
+    tls: { rejectUnauthorized: !allowInvalidCert },
+    socketTimeout: 15000,
+    greetingTimeout: 10000
+  });
+  await client.connect();
+  const list = await client.list();
+  await client.logout();
+  return list.length;
+}
+
+export async function testSmtpRaw({ host, port, secure, user, pass, allowInvalidCert = false }) {
+  const transport = nodemailer.createTransport({
+    host, port, secure,
+    auth: { user, pass },
+    tls: { rejectUnauthorized: !allowInvalidCert },
+    connectionTimeout: 10000
+  });
+  await transport.verify();
+  return true;
+}
+
 /** Crée un dossier IMAP (et ses parents) si nécessaire. */
 export async function ensureMailbox(client, path, delimiter = '/') {
   const list = await client.list();

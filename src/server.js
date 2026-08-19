@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { PORT, APP_PASSWORD } from './config.js';
 import { db } from './db.js';
 import { encrypt, randomToken, timingSafeEqual } from './crypto.js';
-import { getAccount, testImap, testSmtp, withImap, buildTransport, ensureMailbox } from './imap.js';
+import { getAccount, testImap, testSmtp, testImapRaw, testSmtpRaw, withImap, buildTransport, ensureMailbox } from './imap.js';
+import { guessCandidates } from './autodiscover.js';
 import { syncFolders, setFlags } from './sync.js';
 import { bus, createJob, listJobs, getJob, jobItems, jobLogs, requestCancel, recoverJobs } from './jobs.js';
 import { listBackups, deleteBackup, backupManifest } from './backup.js';
@@ -83,6 +84,39 @@ function accountPayload(body, existing = null) {
     allow_invalid_cert: body.allow_invalid_cert ? 1 : 0
   };
 }
+
+app.post('/api/accounts/detect', wrap(async (req, res) => {
+  const { email, imap_pass, smtp_pass, imap_user, smtp_user } = req.body;
+  if (!email) throw new Error('Adresse e-mail requise.');
+  if (!imap_pass) throw new Error('Mot de passe requis pour vérifier la connexion.');
+  const user = imap_user || email;
+  const candidates = await guessCandidates(email);
+  const attempts = [];
+  for (const cand of candidates) {
+    if (!cand.imap) continue;
+    try {
+      await testImapRaw({ host: cand.imap.host, port: cand.imap.port, secure: cand.imap.secure, user, pass: imap_pass });
+      const result = {
+        found: true,
+        imap_host: cand.imap.host, imap_port: cand.imap.port, imap_secure: cand.imap.secure,
+        smtp_host: cand.smtp?.host || '', smtp_port: cand.smtp?.port || 587, smtp_secure: !!cand.smtp?.secure
+      };
+      if (cand.smtp) {
+        try {
+          await testSmtpRaw({ host: cand.smtp.host, port: cand.smtp.port, secure: cand.smtp.secure, user: smtp_user || user, pass: smtp_pass || imap_pass });
+          result.smtp_ok = true;
+        } catch (err) {
+          result.smtp_ok = false;
+          result.smtp_error = err.message;
+        }
+      }
+      return res.json(result);
+    } catch (err) {
+      attempts.push({ host: cand.imap.host, error: err.message });
+    }
+  }
+  res.json({ found: false, attempts });
+}));
 
 app.post('/api/accounts', wrap(async (req, res) => {
   const data = accountPayload(req.body);
