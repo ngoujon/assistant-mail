@@ -28,7 +28,10 @@ async function runSync(ctx) {
     if (ctx.cancelled()) break;
     ctx.phase(`téléchargement · ${folder.path}`);
     try {
-      const res = await syncFolderMessages(accountId, folder.path, { shouldCancel: ctx.cancelled });
+      const res = await syncFolderMessages(accountId, folder.path, {
+        shouldCancel: ctx.cancelled,
+        onError: (uid, err) => ctx.log(`${folder.path} #${uid} : message ignoré (${err.message}).`, 'warn')
+      });
       if (res.imported || res.removed) ctx.log(`${folder.path} : ${res.imported} nouveau(x), ${res.removed} retiré(s).`);
     } catch (err) {
       bump(ctx.id, 'failed');
@@ -75,7 +78,14 @@ async function copyBatch({ ctx, srcClient, dstClient, srcPath, dstPath, uids, sa
             internalDate = msg.internalDate || internalDate;
             messageId = msg.envelope?.messageId || null;
           }
-          if (!source) throw new Error('message introuvable côté source');
+          if (!source) {
+            // Le message a disparu entre le listage et la récupération (supprimé/déplacé
+            // ailleurs en parallèle) : ce n'est pas un échec, juste plus rien à copier.
+            setItem(itemId, { status: 'ignore', detail: 'message disparu côté source avant récupération' });
+            bump(ctx.id, 'done');
+            updateJob(ctx.id, {});
+            continue;
+          }
           // Filet de sécurité : copie locale du message brut avant toute écriture distante.
           if (srcFolderId) saveRaw(srcAccountId, srcFolderId, uid, source);
 

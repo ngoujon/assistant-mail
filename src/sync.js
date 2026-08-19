@@ -42,7 +42,7 @@ function folderRow(accountId, path) {
  * Télécharge les nouveaux messages d'un dossier et les stocke localement
  * (métadonnées en base + source brute sur disque).
  */
-export async function syncFolderMessages(accountId, folderPath, { onProgress, shouldCancel } = {}) {
+export async function syncFolderMessages(accountId, folderPath, { onProgress, shouldCancel, onError } = {}) {
   const folder = folderRow(accountId, folderPath);
   if (!folder) throw new Error(`Dossier inconnu : ${folderPath}`);
 
@@ -92,34 +92,40 @@ export async function syncFolderMessages(accountId, folderPath, { onProgress, sh
         if (shouldCancel?.()) break;
         const batch = toFetch.slice(i, i + batchSize);
         for await (const msg of client.fetch(batch, { uid: true, source: true, flags: true, size: true, internalDate: true }, { uid: true })) {
-          const source = msg.source;
-          const parsed = await simpleParser(source, { skipImageLinks: true });
-          const flags = Array.from(msg.flags || []);
-          const rawPath = saveRaw(accountId, folder.id, msg.uid, source);
-          const text = (parsed.text || '').replace(/\s+/g, ' ').trim();
-          insert.run({
-            account_id: accountId,
-            folder_id: folder.id,
-            uid: msg.uid,
-            message_id: parsed.messageId || null,
-            subject: parsed.subject || '(sans objet)',
-            from_name: parsed.from?.value?.[0]?.name || '',
-            from_addr: parsed.from?.value?.[0]?.address || '',
-            to_addr: addrText(parsed.to),
-            cc_addr: addrText(parsed.cc),
-            date: (parsed.date || msg.internalDate || new Date()).toISOString(),
-            size: msg.size || source.length,
-            flags: flags.join(' '),
-            seen: flags.includes('\\Seen') ? 1 : 0,
-            flagged: flags.includes('\\Flagged') ? 1 : 0,
-            answered: flags.includes('\\Answered') ? 1 : 0,
-            has_attachments: parsed.attachments?.length ? 1 : 0,
-            snippet: text.slice(0, 240),
-            body_text: parsed.text || '',
-            body_html: parsed.html || '',
-            raw_path: rawPath
-          });
-          imported++;
+          try {
+            const source = msg.source;
+            const parsed = await simpleParser(source, { skipImageLinks: true });
+            const flags = Array.from(msg.flags || []);
+            const rawPath = saveRaw(accountId, folder.id, msg.uid, source);
+            const text = (parsed.text || '').replace(/\s+/g, ' ').trim();
+            insert.run({
+              account_id: accountId,
+              folder_id: folder.id,
+              uid: msg.uid,
+              message_id: parsed.messageId || null,
+              subject: parsed.subject || '(sans objet)',
+              from_name: parsed.from?.value?.[0]?.name || '',
+              from_addr: parsed.from?.value?.[0]?.address || '',
+              to_addr: addrText(parsed.to),
+              cc_addr: addrText(parsed.cc),
+              date: (parsed.date || msg.internalDate || new Date()).toISOString(),
+              size: msg.size || source.length,
+              flags: flags.join(' '),
+              seen: flags.includes('\\Seen') ? 1 : 0,
+              flagged: flags.includes('\\Flagged') ? 1 : 0,
+              answered: flags.includes('\\Answered') ? 1 : 0,
+              has_attachments: parsed.attachments?.length ? 1 : 0,
+              snippet: text.slice(0, 240),
+              body_text: parsed.text || '',
+              body_html: parsed.html || '',
+              raw_path: rawPath
+            });
+            imported++;
+          } catch (err) {
+            // Un message isolé illisible (encodage, taille, corruption) ne doit pas
+            // faire échouer tout le dossier : on le journalise et on continue.
+            onError?.(msg.uid, err);
+          }
         }
         onProgress?.(Math.min(i + batchSize, toFetch.length), toFetch.length);
       }
