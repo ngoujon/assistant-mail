@@ -25,6 +25,8 @@ body {
 ::-webkit-scrollbar-corner { background: transparent; }
 
 .hidden { display: none !important; }
+.icon { width: 16px; height: 16px; flex: 0 0 auto; vertical-align: -3px; }
+.icon-lg { width: 20px; height: 20px; vertical-align: -5px; }
 .muted { color: var(--muted); }
 .error { color: var(--err); }
 .ok { color: var(--ok); }

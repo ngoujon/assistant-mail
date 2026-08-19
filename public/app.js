@@ -18,6 +18,13 @@ async function api(path, options = {}) {
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmtDate = (d) => d ? new Date(d).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
 const fmtSize = (b) => b > 1048576 ? `${(b / 1048576).toFixed(1)} Mo` : `${Math.round((b || 0) / 1024)} Ko`;
+const ICONS = {
+  attachment: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>',
+  star: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+  error: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+  warn: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+  search: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>'
+};
 
 function toast(message, isError = false) {
   const el = $('#toast');
@@ -110,7 +117,7 @@ async function renderMessages(query = '') {
     <div class="pane-head muted" style="border:0;position:static">${total} message(s) dans ${esc(state.folder)}</div>
     ${messages.map((m) => `<div class="msg-item${m.seen ? '' : ' unread'}${state.message === m.id ? ' active' : ''}" data-id="${m.id}">
       <div class="row" style="gap:6px"><input type="checkbox" class="pick" data-uid="${m.uid}" onclick="event.stopPropagation()">
-        <span class="subject" style="flex:1">${esc(m.subject)}</span>${m.has_attachments ? '📎' : ''}${m.flagged ? '⭐' : ''}</div>
+        <span class="subject" style="flex:1">${esc(m.subject)}</span>${m.has_attachments ? ICONS.attachment : ''}${m.flagged ? ICONS.star : ''}</div>
       <div class="meta"><span>${esc(m.from_name || m.from_addr)}</span><span>${fmtDate(m.date)}</span></div>
       <div class="snippet">${esc(m.snippet || '')}</div></div>`).join('') || '<div class="reader muted">Aucun message.</div>'}`;
   $('#search').addEventListener('keydown', (e) => { if (e.key === 'Enter') renderMessages(e.target.value); });
@@ -130,7 +137,7 @@ const openMessage = guard(async (id) => {
     <div class="row" style="justify-content:space-between">
       <h2 style="margin:0">${esc(msg.subject)}</h2>
       <div class="row">
-        <button class="small" id="flag">${msg.flagged ? 'Retirer le suivi' : '⭐ Suivre'}</button>
+        <button class="small" id="flag">${msg.flagged ? 'Retirer le suivi' : `${ICONS.star} Suivre`}</button>
         <button class="small" id="unread">${msg.seen ? 'Marquer non lu' : 'Marquer lu'}</button>
         <button class="small" id="move">Déplacer</button>
         <button class="small primary" id="reply">Répondre</button>
@@ -292,7 +299,7 @@ function bindJobRows() {
     $('#job-detail').innerHTML = `<div class="card" style="margin-top:14px"><h2>Traitement #${job.id} — ${esc(job.label)}</h2>
       ${job.error ? `<p class="error">${esc(job.error)}</p>` : ''}
       <h2 style="margin-top:12px">Journal</h2>
-      <pre class="muted" style="max-height:220px;overflow:auto">${job.logs.map((l) => `[${l.created_at}] ${l.level === 'error' ? '❌' : l.level === 'warn' ? '⚠️' : '•'} ${esc(l.message)}`).join('\n') || 'Aucun message.'}</pre>
+      <pre class="muted" style="max-height:220px;overflow:auto">${job.logs.map((l) => `[${l.created_at}] ${l.level === 'error' ? ICONS.error : l.level === 'warn' ? ICONS.warn : '•'} ${esc(l.message)}`).join('\n') || 'Aucun message.'}</pre>
       <h2 style="margin-top:12px">Éléments (${job.items.length})</h2>
       <table><thead><tr><th>Élément</th><th class="col-fit">UID source</th><th class="col-fit">UID destination</th><th class="col-fit">État</th><th>Détail</th></tr></thead><tbody>
       ${job.items.slice(-200).map((i) => `<tr><td>${esc(i.ref)}</td><td class="col-fit">${i.src_uid ?? '—'}</td><td class="col-fit">${i.dst_uid ?? '—'}</td>
@@ -524,7 +531,7 @@ function accountModal(acc) {
       <div class="field"><label>Serveur SMTP</label><input id="a-sh" value="${v('smtp_host')}" placeholder="smtp.exemple.com"></div>
     </div>
     <div class="row" style="margin:4px 0 12px">
-      <button type="button" class="small" id="a-detect">🔍 Détecter et vérifier automatiquement</button>
+      <button type="button" class="small" id="a-detect">${ICONS.search} Détecter et vérifier automatiquement</button>
       <span id="a-detect-status" class="muted"></span>
     </div>
     <details id="a-advanced">
