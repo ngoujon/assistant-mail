@@ -90,6 +90,7 @@ app.post('/api/accounts/detect', wrap(async (req, res) => {
   if (!email) throw new Error('Adresse e-mail requise.');
   if (!imap_pass) throw new Error('Mot de passe requis pour vérifier la connexion.');
   const user = imap_user || email;
+  const isGmail = email.endsWith('@gmail.com') || email.endsWith('@googlemail.com');
   const candidates = await guessCandidates(email);
   const attempts = [];
   for (const cand of candidates) {
@@ -115,12 +116,22 @@ app.post('/api/accounts/detect', wrap(async (req, res) => {
       attempts.push({ host: cand.imap.host, error: err.message });
     }
   }
-  res.json({ found: false, attempts });
+  let errorMsg = 'Détection automatique impossible pour ce fournisseur.';
+  if (isGmail) {
+    errorMsg = `Gmail refuse les mots de passe ordinaires. Créez un mot de passe d'application :
+1. Allez sur myaccount.google.com/security
+2. Activez l'authentification à deux facteurs si ce n'est pas fait
+3. Cherchez « Mots de passe des applications »
+4. Générez un mot de passe pour « Mail » et « Windows Computer »
+5. Utilisez ce mot de passe ici au lieu de votre mot de passe Gmail`;
+  }
+  res.json({ found: false, attempts, error: errorMsg });
 }));
 
 app.post('/api/accounts', wrap(async (req, res) => {
   const data = accountPayload(req.body);
   if (!data.imap_pass) throw new Error('Le mot de passe IMAP est obligatoire.');
+  const isGmail = req.body.email.endsWith('@gmail.com') || req.body.email.endsWith('@googlemail.com');
   const keys = Object.keys(data);
   const info = db.prepare(`INSERT INTO accounts (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`)
     .run(...keys.map((k) => data[k]));
@@ -130,8 +141,12 @@ app.post('/api/accounts', wrap(async (req, res) => {
     db.prepare("UPDATE accounts SET status = 'connecté', last_error = NULL WHERE id = ?").run(id);
     createJob('sync', `Synchronisation ${data.email}`, { accountId: id });
   } catch (err) {
-    db.prepare("UPDATE accounts SET status = 'erreur', last_error = ? WHERE id = ?").run(err.message, id);
-    return res.status(200).json({ id, warning: `Compte enregistré mais la connexion IMAP a échoué : ${err.message}` });
+    let errorMsg = err.message;
+    if (isGmail && err.message.includes('auth')) {
+      errorMsg = `Gmail refuse les mots de passe ordinaires. Créez un mot de passe d'application sur myaccount.google.com/security et réessayez.`;
+    }
+    db.prepare("UPDATE accounts SET status = 'erreur', last_error = ? WHERE id = ?").run(errorMsg, id);
+    return res.status(200).json({ id, warning: `Compte enregistré mais la connexion IMAP a échoué : ${errorMsg}` });
   }
   res.json({ id });
 }));
@@ -151,10 +166,23 @@ app.delete('/api/accounts/:id', wrap((req, res) => {
 
 app.post('/api/accounts/:id/test', wrap(async (req, res) => {
   const acc = getAccount(req.params.id);
+  const isGmail = acc.email.endsWith('@gmail.com') || acc.email.endsWith('@googlemail.com');
   const result = { imap: null, smtp: null };
-  try { result.imap = `OK · ${await testImap(acc)} dossier(s)`; } catch (err) { result.imap = `Erreur : ${err.message}`; }
+  try { result.imap = `OK · ${await testImap(acc)} dossier(s)`; } catch (err) {
+    let msg = err.message;
+    if (isGmail && msg.includes('auth')) {
+      msg = `Erreur d'authentification. Gmail nécessite un mot de passe d'application, pas votre mot de passe ordinaire. Générateur : myaccount.google.com/security`;
+    }
+    result.imap = `Erreur : ${msg}`;
+  }
   if (acc.smtp_host) {
-    try { await testSmtp(acc); result.smtp = 'OK'; } catch (err) { result.smtp = `Erreur : ${err.message}`; }
+    try { await testSmtp(acc); result.smtp = 'OK'; } catch (err) {
+      let msg = err.message;
+      if (isGmail && msg.includes('auth')) {
+        msg = `Erreur d'authentification. Gmail nécessite un mot de passe d'application, pas votre mot de passe ordinaire. Générateur : myaccount.google.com/security`;
+      }
+      result.smtp = `Erreur : ${msg}`;
+    }
   } else result.smtp = 'non configuré';
   res.json(result);
 }));

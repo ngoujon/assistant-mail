@@ -574,8 +574,23 @@ function accountModal(acc) {
         status.textContent = r.smtp_ok === false ? `IMAP vérifié, SMTP en échec (${r.smtp_error})` : 'Connexion vérifiée avec succès.';
         toast(r.smtp_ok === false ? `Paramètres IMAP détectés, mais le test SMTP a échoué : ${r.smtp_error}` : 'Paramètres détectés et connexion vérifiée !', r.smtp_ok === false);
       } else {
+        const errorMsg = r.error || 'Détection automatique impossible pour ce fournisseur. Merci de saisir les paramètres manuellement.';
         status.textContent = 'Détection impossible, saisie manuelle requise.';
-        toast('Détection automatique impossible pour ce fournisseur. Merci de saisir les paramètres manuellement.', true);
+        if (r.error?.includes('Gmail')) {
+          modal(`<h2>${ICONS.warn} Connexion Gmail</h2>
+            <p>Gmail refuse les mots de passe ordinaires pour IMAP/SMTP. Vous devez créer un <b>mot de passe d'application</b> :</p>
+            <ol style="margin: 12px 0; padding-left: 20px">
+              <li>Ouvrez <a href="https://myaccount.google.com/security" target="_blank">myaccount.google.com/security</a></li>
+              <li>Activez l'authentification à deux facteurs si ce n'est pas fait</li>
+              <li>Cherchez « <b>Mots de passe des applications</b> » (ou « App passwords »)</li>
+              <li>Générez un mot de passe pour « Mail » et « Windows Computer »</li>
+              <li>Copiez le mot de passe généré</li>
+              <li>Revenez ici et collez-le dans le champ « Mot de passe »</li>
+            </ol>
+            <div class="row"><button class="primary" onclick="closeModal()">Compris, je réessaye</button></div>`);
+        } else {
+          toast(errorMsg, true);
+        }
       }
     } catch (err) {
       status.textContent = '';
