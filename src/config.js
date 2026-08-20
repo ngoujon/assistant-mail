@@ -15,5 +15,6 @@ export const PORT = Number(process.env.PORT || 3016);
 export const APP_SECRET = process.env.APP_SECRET || 'mailzen-default-insecure-secret';
 export const APP_PASSWORD = process.env.APP_PASSWORD || '';
 export const OLLAMA_URL = (process.env.OLLAMA_URL || 'http://host.docker.internal:11434').replace(/\/$/, '');
+export const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY || '';
 export const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.1';
 export const MAX_MESSAGES_PER_FOLDER = Number(process.env.MAX_MESSAGES_PER_FOLDER || 0);

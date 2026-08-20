@@ -1,12 +1,20 @@
-import { OLLAMA_URL, OLLAMA_MODEL } from './config.js';
+import { OLLAMA_URL, OLLAMA_API_KEY, OLLAMA_MODEL } from './config.js';
 import { db } from './db.js';
 import { withImap, getAccount, ensureMailbox } from './imap.js';
 import { registerRunner, addItem, setItem, updateJob } from './jobs.js';
 import { syncFolders, syncFolderMessages } from './sync.js';
 
+function ollamaHeaders() {
+  const headers = { 'Content-Type': 'application/json' };
+  if (OLLAMA_API_KEY) {
+    headers['Authorization'] = `Bearer ${OLLAMA_API_KEY}`;
+  }
+  return headers;
+}
+
 export async function ollamaStatus() {
   try {
-    const res = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(`${OLLAMA_URL}/api/tags`, { headers: ollamaHeaders(), signal: AbortSignal.timeout(5000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     const models = (data.models || []).map((m) => m.name);
@@ -19,7 +27,7 @@ export async function ollamaStatus() {
 async function ollamaChat(messages, { json = false, model } = {}) {
   const res = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: ollamaHeaders(),
     body: JSON.stringify({
       model: model || OLLAMA_MODEL,
       messages,
