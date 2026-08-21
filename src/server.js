@@ -362,7 +362,7 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 
 /* ---------------- Synchronisation automatique périodique ---------------- */
-const AUTO_SYNC_INTERVAL_MS = 10 * 60 * 1000;
+const AUTO_SYNC_INTERVAL_MS = 30 * 60 * 1000;
 function autoSyncAll() {
   const accounts = db.prepare('SELECT id, email FROM accounts ORDER BY id').all();
   for (const acc of accounts) createJob('sync', `Synchronisation automatique ${acc.email}`, { accountId: acc.id });
