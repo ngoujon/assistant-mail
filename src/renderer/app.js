@@ -8,7 +8,7 @@ const sendBtn = document.getElementById('btn-send')
 const statusLine = document.getElementById('status-line')
 const settingsPanel = document.getElementById('settings')
 const modelSelect = document.getElementById('model')
-const autoDoux = document.getElementById('auto-doux')
+const seuilSelect = document.getElementById('seuil')
 const listeComptes = document.getElementById('comptes')
 const formCompte = document.getElementById('form-compte')
 const etatForm = document.getElementById('c-etat')
@@ -20,6 +20,8 @@ let toolEls = new Map()
 let fileEls = new Map()
 let comptes = []
 const permsEnAttente = []
+/** Messages écrits pendant qu'il travaillait, pas encore repris par l'agent. */
+let enFile = []
 
 // ------------------------------------------------------------------ outils
 
@@ -47,6 +49,7 @@ function add(node) {
 
 function clearThread() {
   permsEnAttente.length = 0
+  enFile = []
   thread.replaceChildren()
   currentText = null
   currentThinking = null
@@ -190,14 +193,31 @@ function humanizeInput(value, depth = 0, lines = []) {
 
 // -------------------------------------------------------------------- rendu
 
-function pushUserMessage(text) {
+function pushUserMessage(text, enAttente) {
   dropWelcome()
-  add(el('div', 'msg user', text))
+  const node = el('div', `msg user${enAttente ? ' enfile' : ''}`, text)
+  if (enAttente) {
+    node.appendChild(el('span', 'attente', 'pris en compte à la prochaine étape'))
+    enFile.push(node)
+  }
+  add(node)
   scrollDown(true)
+}
+
+/**
+ * L'agent vient de reprendre la parole ou d'appeler un outil : le SDK lui a donc
+ * remis les messages en attente à cette respiration-là. On retire le marqueur.
+ */
+function videEnFile() {
+  for (const n of enFile.splice(0, enFile.length)) {
+    n.classList.remove('enfile')
+    n.querySelector('.attente')?.remove()
+  }
 }
 
 function startTextBlock() {
   dropWelcome()
+  videEnFile()
   finishThinking()
   const node = el('div', 'msg assistant md')
   currentText = { el: node, raw: '' }
@@ -248,6 +268,7 @@ function finishThinking() {
 }
 
 function addTool(evt) {
+  videEnFile()
   finishText()
   finishThinking()
   const [glyph, label] = describeTool(evt.name)
@@ -293,7 +314,15 @@ function majFile(evt) {
   if (!carte) {
     finishText()
     const node = el('div', 'file')
+    const tete = el('div', 'tete')
     const t = el('div', 't', evt.intitule || 'Traitement en cours')
+    const stop = el('button', 'stop', 'Arrêter')
+    stop.addEventListener('click', async () => {
+      stop.disabled = true
+      stop.textContent = 'Arrêt…'
+      await api.arreterTraitement(evt.id)
+    })
+    tete.append(t, stop)
     const d = el('div', 'd', '')
     const barre = el('div', 'barre')
     const jauge = el('i')
@@ -302,8 +331,8 @@ function majFile(evt) {
     const faits = el('span', null, '')
     const echecs = el('span', 'echecs', '')
     chiffres.append(faits, echecs)
-    node.append(t, d, barre, chiffres)
-    carte = { node, d, jauge, faits, echecs }
+    node.append(tete, d, barre, chiffres)
+    carte = { node, d, jauge, faits, echecs, stop }
     fileEls.set(evt.id, carte)
     add(node)
   }
@@ -312,7 +341,20 @@ function majFile(evt) {
   carte.d.textContent = evt.message || ''
   carte.faits.textContent = `${evt.faits} / ${evt.total} traités`
   carte.echecs.textContent = evt.echecs ? `${evt.echecs} échec(s)` : ''
+  if (evt.fini) {
+    carte.node.classList.add('fini')
+    carte.stop.remove()
+    carte.d.textContent = STATUTS[evt.statut] || evt.statut || 'Terminé'
+  }
   scrollDown()
+}
+
+const STATUTS = {
+  termine: 'Terminé.',
+  termine_avec_echecs: 'Terminé, avec des échecs.',
+  interrompu: 'Interrompu — reprenable.',
+  echec: 'Échec.',
+  annule: 'Annulé.',
 }
 
 // --------------------------------------------------------------- permissions
@@ -418,14 +460,25 @@ function statusComptes() {
 
 // -------------------------------------------------------------------- envoi
 
+/**
+ * Envoie, même si l'agent travaille encore : le message rejoint sa file d'entrée
+ * et il refait son plan avec. C'est le comportement de Claude Code, et c'est ce
+ * qui permet de lui demander deux choses coup sur coup.
+ */
 function submit(forced) {
   const text = (forced ?? input.value).trim()
-  if (!text || busy) return
-  pushUserMessage(text)
+  if (!text) return
+  pushUserMessage(text, busy)
   api.send(text)
   input.value = ''
   autoGrow()
   setBusy(true)
+  majBouton()
+}
+
+/** Le bouton envoie tant qu'il y a du texte ; il n'arrête l'agent que sur un champ vide. */
+function majBouton() {
+  document.body.classList.toggle('peut-envoyer', !!input.value.trim())
 }
 
 function autoGrow() {
@@ -435,6 +488,7 @@ function autoGrow() {
 
 input.addEventListener('input', () => {
   autoGrow()
+  majBouton()
   sendBtn.disabled = busy ? false : !input.value.trim()
 })
 
@@ -455,7 +509,10 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && busy) { e.preventDefault(); api.interrupt() }
 }, true)
 
-sendBtn.addEventListener('click', () => { if (busy) api.interrupt(); else submit() })
+sendBtn.addEventListener('click', () => {
+  if (input.value.trim()) submit()
+  else if (busy) api.interrupt()
+})
 
 document.getElementById('btn-new').addEventListener('click', () => {
   api.newChat()
@@ -469,7 +526,7 @@ document.getElementById('btn-workspace').addEventListener('click', () => api.ope
 document.getElementById('btn-data').addEventListener('click', () => api.openData())
 
 modelSelect.addEventListener('change', () => api.setConfig({ model: modelSelect.value }))
-autoDoux.addEventListener('change', () => api.setConfig({ autoDoux: autoDoux.checked }))
+seuilSelect.addEventListener('change', () => api.setConfig({ seuilConfirmation: Number(seuilSelect.value) }))
 
 document.addEventListener('click', (e) => {
   const lien = e.target.closest('a[data-ext]')
@@ -617,6 +674,7 @@ api.onEvent((evt) => {
       else setBusy(evt.state === 'thinking')
       break
     case 'turn-start': setBusy(true); break
+    case 'queued': setBusy(true); break
     case 'text-start': startTextBlock(); break
     case 'text-delta': appendText(evt.text); break
     case 'thinking-start': startThinking(); break
@@ -650,7 +708,7 @@ api.onEvent((evt) => {
 
 const state = await api.init()
 modelSelect.value = state.config.model
-autoDoux.checked = Boolean(state.config.autoDoux)
+seuilSelect.value = String(state.config.seuilConfirmation ?? 50)
 comptes = state.comptes || []
 renderComptes()
 statusComptes()

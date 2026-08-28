@@ -33,24 +33,11 @@ function claudeExecutable() {
 
 const PREFIXE = 'mcp__mailzen__'
 
-/** Outils qui ne font que lire : jamais de confirmation. */
-const LECTURE = new Set([
-  'lister_comptes', 'lister_dossiers', 'chercher_messages', 'lire_message',
-  'expediteurs', 'abonnements', 'apercu_dossier', 'etat_traitements', 'methodes_desabonnement',
-])
-
-/** Actions réversibles d'un clic : confirmées, sauf si « actions douces » est actif. */
-const DOUCES = new Set(['creer_dossier', 'marquer_messages'])
-
 /**
- * Actions qui touchent au contenu des boîtes ou sortent de la machine.
- * Règle n°2 : validation obligatoire, sans bouton « Toujours ».
+ * Les outils mail portent eux-mêmes leur politique de validation (voir outils.mjs) :
+ * ils connaissent le volume réel et n'interrompent Nicolas que si ça le mérite.
+ * On ne les double donc pas d'une confirmation générique.
  */
-const TOUJOURS_DEMANDER = new Set([
-  'deplacer_messages', 'deplacer_dossier', 'supprimer_messages', 'supprimer_dossier',
-  'renommer_dossier', 'desabonner', 'envoyer_message', 'reprendre_traitement',
-])
-
 const BUILTIN_SUR = new Set([
   'Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite', 'Task',
   'ToolSearch', 'ListMcpResourcesTool', 'ReadMcpResourceTool', 'ReadMcpResourceDirTool',
@@ -120,7 +107,7 @@ export class AgentSession {
       },
       tools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite', 'Task'],
       strictMcpConfig: true,
-      mcpServers: { mailzen: serveurMail() },
+      mcpServers: { mailzen: serveurMail({ confirmer: (d) => this.confirmerAction(d), seuil: () => this.seuil() }) },
       // Aucune source de réglages externe : les règles d'autorisation de cette app
       // ne doivent pas pouvoir être élargies par un settings.json global.
       settingSources: [],
@@ -184,11 +171,33 @@ export class AgentSession {
     this.busy = false
   }
 
+  /**
+   * Envoie un message. Si un tour est déjà en cours, le message rejoint la file
+   * d'entrée : le SDK le remet au modèle à la prochaine respiration, qui refait
+   * son plan avec. On ne bloque donc jamais la saisie.
+   */
   send(text) {
     if (!this.q) this.start({})
+    const enCours = this.busy
     this.busy = true
-    this.emit({ k: 'turn-start' })
+    this.emit({ k: enCours ? 'queued' : 'turn-start' })
     this.emit({ k: 'status', state: 'thinking' })
+    this.pousser(text)
+  }
+
+  /**
+   * Glisse une information dans la conversation sans que Nicolas ait tapé quoi que
+   * ce soit — la fin d'un traitement parti en arrière-plan, par exemple.
+   */
+  notifier(texte) {
+    if (!this.q) return false
+    this.busy = true
+    this.emit({ k: 'status', state: 'thinking' })
+    this.pousser(texte)
+    return true
+  }
+
+  pousser(text) {
     this.queue.push({
       type: 'user',
       message: { role: 'user', content: [{ type: 'text', text }] },
@@ -284,16 +293,36 @@ export class AgentSession {
 
   // ------------------------------------------------------------ permissions
 
-  async handlePermission(toolName, input, opts) {
-    const cfg = this.getConfig()
-    const court = toolName.startsWith(PREFIXE) ? toolName.slice(PREFIXE.length) : null
-    const critique = court ? TOUJOURS_DEMANDER.has(court) : false
+  /** Seuil de messages au-delà duquel un traitement se valide. */
+  seuil() {
+    const v = this.getConfig()?.seuilConfirmation
+    if (v === null || v === undefined) return 50
+    return v < 0 ? Infinity : Number(v)
+  }
 
-    if (!critique) {
-      if (court && LECTURE.has(court)) return { behavior: 'allow', updatedInput: input }
-      if (court && DOUCES.has(court) && cfg.autoDoux) return { behavior: 'allow', updatedInput: input }
-      if (!court && BUILTIN_SUR.has(toolName)) return { behavior: 'allow', updatedInput: input }
-    }
+  /**
+   * Validation demandée par un outil mail, une fois qu'il connaît l'ampleur exacte
+   * de ce qu'il s'apprête à faire.
+   * @returns {Promise<boolean>}
+   */
+  async confirmerAction(demande) {
+    const reponse = await this.askPermission({
+      toolName: demande.outil,
+      input: demande.entree,
+      summary: { title: demande.titre, lines: demande.lignes, danger: demande.danger },
+      title: demande.titre,
+      hint: demande.indice,
+      allowAlways: false,
+      signal: this.abort?.signal,
+    })
+    return reponse?.behavior === 'allow'
+  }
+
+  async handlePermission(toolName, input, opts) {
+    // Outils mail : la décision appartient à l'outil, qui la prend en connaissance
+    // de cause. Redemander ici reviendrait à faire valider deux fois la même action.
+    if (toolName.startsWith(PREFIXE)) return { behavior: 'allow', updatedInput: input }
+    if (BUILTIN_SUR.has(toolName)) return { behavior: 'allow', updatedInput: input }
 
     const summary = resumerPermission(toolName, input)
     const reponse = await this.askPermission({
@@ -304,8 +333,7 @@ export class AgentSession {
       displayName: opts?.displayName,
       subtitle: opts?.subtitle,
       reason: opts?.decisionReason,
-      hint: critique ? 'Cette action touche au contenu de tes boîtes mail.' : undefined,
-      allowAlways: !critique,
+      allowAlways: true,
       signal: opts?.signal,
     })
 

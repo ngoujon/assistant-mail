@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('mailzen', {
     remove: (id) => ipcRenderer.invoke('comptes:delete', id),
   },
   traitements: () => ipcRenderer.invoke('traitements:list'),
+  arreterTraitement: (id) => ipcRenderer.invoke('traitements:arreter', id),
 
   openWorkspace: () => ipcRenderer.send('app:open-workspace'),
   openData: () => ipcRenderer.send('app:open-data'),

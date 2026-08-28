@@ -8,14 +8,17 @@ import { PROMPT_VERSION } from './agent/prompt.mjs'
 import { publicAccounts, saveAccount, deleteAccount } from './mail/accounts.mjs'
 import { guessCandidates, providerNote } from './mail/autodiscover.mjs'
 import { testImapRaw, testSmtpRaw } from './mail/imap.mjs'
-import { onProgress } from './mail/evenements.mjs'
+import { onProgress, onDone } from './mail/evenements.mjs'
 import { listQueues } from './mail/file.mjs'
+import { arreterFile } from './mail/transfert.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const CONFIG_DEFAUT = {
   model: 'claude-opus-5',
-  autoDoux: true,
+  // Nombre de messages au-delà duquel un traitement demande validation.
+  // 0 = toujours demander, -1 = ne demander que pour l'irréversible.
+  seuilConfirmation: 50,
   bounds: { width: 500, height: 800 },
   lastSessionId: null,
   promptVersion: 0,
@@ -230,7 +233,7 @@ function wireIpc() {
   ipcMain.handle('app:init', () => {
     setImmediate(viderAttente)
     return {
-      config: { model: config.model, autoDoux: config.autoDoux },
+      config: { model: config.model, seuilConfirmation: config.seuilConfirmation },
       workspace,
       comptes: publicAccounts(),
       version: app.getVersion(),
@@ -270,6 +273,9 @@ function wireIpc() {
   })
 
   ipcMain.handle('traitements:list', () => listQueues({ limite: 20 }))
+  ipcMain.handle('traitements:arreter', (_e, id) => {
+    try { return arreterFile(id) } catch (err) { return { id, arrete: false, erreur: err.message } }
+  })
 
   ipcMain.on('app:open-workspace', () => shell.openPath(workspace))
   ipcMain.on('app:open-data', () => shell.openPath(path.dirname(P.queues())))
@@ -347,6 +353,19 @@ if (!app.requestSingleInstanceLock()) {
 
     // La progression d'un déplacement remonte en direct dans la conversation.
     onProgress((evt) => emit(evt))
+
+    // Un traitement parti en arrière-plan revient dans la conversation quand il a
+    // fini : l'assistant l'annonce lui-même, comme si Nicolas venait de lui demander.
+    onDone((rapport) => {
+      const echecs = rapport.echecs_total || rapport.echecs || 0
+      session?.notifier(
+        `[Traitement terminé, message automatique de l'application — Nicolas ne l'a pas écrit]\n` +
+        `« ${rapport.intitule} » : ${rapport.faits} message(s) traité(s), ${echecs} échec(s).\n` +
+        (echecs
+          ? `Annonce-le à Nicolas en deux lignes, dis quels messages ont échoué et pourquoi (appelle etat_traitements avec l'id ${rapport.id}), et propose la suite.`
+          : "Annonce-le à Nicolas en une ligne. N'appelle pas d'outil si tu n'en as pas besoin."),
+      )
+    })
 
     session = new AgentSession({
       emit: (evt) => {

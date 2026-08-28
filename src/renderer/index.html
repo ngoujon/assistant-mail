@@ -45,10 +45,16 @@
         </select>
       </label>
       <label class="row">
-        <span>Créer un dossier / marquer sans confirmer</span>
-        <input type="checkbox" id="auto-doux" />
+        <span>Me demander au-delà de</span>
+        <select id="seuil">
+          <option value="0">chaque action</option>
+          <option value="10">10 messages</option>
+          <option value="50">50 messages</option>
+          <option value="200">200 messages</option>
+          <option value="-1">jamais</option>
+        </select>
       </label>
-      <p class="note-inline">Déplacer, supprimer, désabonner et envoyer demandent toujours ta validation, une action à la fois.</p>
+      <p class="note-inline">En dessous du seuil, ce que tu demandes s'exécute sans question. Restent toujours validés : l'effacement définitif, la suppression d'un dossier avec son contenu, et tout e-mail sortant.</p>
 
       <h4>Boîtes mail</h4>
       <div id="comptes" class="comptes"></div>
@@ -98,7 +104,7 @@
           </svg>
         </button>
       </div>
-      <div class="hint"><kbd>↩</kbd> envoyer · <kbd>⇧↩</kbd> nouvelle ligne · <kbd>esc</kbd> stop</div>
+      <div class="hint"><kbd>↩</kbd> envoyer · <kbd>⇧↩</kbd> nouvelle ligne · <kbd>esc</kbd> stop — tu peux écrire pendant qu'il travaille</div>
     </footer>
 
     <script type="module" src="app.js"></script>

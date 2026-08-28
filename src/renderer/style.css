@@ -588,3 +588,36 @@ kbd {
 .file .barre i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-2), var(--accent)); transition: width 0.25s ease; }
 .file .chiffres { font-size: 11px; color: var(--text-faint); display: flex; gap: 10px; }
 .file .chiffres .echecs { color: var(--danger); }
+
+/* ------------------------------------------- message écrit pendant un travail */
+
+.msg.user.enfile { opacity: 0.72; }
+.msg.user .attente {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 400;
+  opacity: 0.85;
+  margin-top: 3px;
+}
+
+/* Le bouton reste un bouton d'envoi tant qu'il y a du texte à envoyer. */
+body.busy.peut-envoyer .send .ic-send { display: block; }
+body.busy.peut-envoyer .send .ic-stop { display: none; }
+
+/* -------------------------------------------------- traitement : tête et arrêt */
+
+.file .tete { display: flex; align-items: baseline; gap: 8px; }
+.file .tete .t { flex: 1 1 auto; min-width: 0; }
+.file .stop {
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 11px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-dim);
+  border-radius: 8px;
+  padding: 2px 8px;
+}
+.file .stop:hover { color: var(--danger); border-color: var(--danger); }
+.file .stop:disabled { opacity: 0.5; }
+.file.fini .barre i { background: var(--ok); }

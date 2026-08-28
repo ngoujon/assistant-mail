@@ -127,9 +127,12 @@ export async function runTransfer(q, { source, cible, signal, pause = 40 } = {})
   q.demarreLe = q.demarreLe || new Date().toISOString()
   saveQueue(q)
 
-  const avancer = (message) => {
+  const avancer = (message, fini = false) => {
     const c = countByState(q)
-    emitProgress({ k: 'file', id: q.id, intitule: q.intitule, total: totalItems(q), faits: c.termine, echecs: c.echec, message })
+    emitProgress({
+      k: 'file', id: q.id, intitule: q.intitule, total: totalItems(q),
+      faits: c.termine, echecs: c.echec, message, fini, statut: q.statut,
+    })
   }
 
   try {
@@ -169,7 +172,7 @@ export async function runTransfer(q, { source, cible, signal, pause = 40 } = {})
     }
   }
   saveQueue(q)
-  avancer(q.statut)
+  avancer(q.statut, true)
   return resume(q)
 }
 
@@ -284,7 +287,54 @@ export async function executerFile(q, { signal } = {}) {
 export function reprendreFile(id, opts) {
   const q = loadQueue(id)
   if (q.statut === 'termine') throw new Error(`Le traitement « ${id} » est déjà terminé.`)
-  return executerFile(q, opts)
+  return lancerFile(q, opts)
+}
+
+// ------------------------------------------------- traitements en arrière-plan
+//
+// Un déplacement de 900 messages prend plusieurs minutes. Tant qu'il tourne dans
+// l'appel d'outil, l'assistant est bloqué et Nicolas ne peut plus rien lui dire.
+// On garde donc les traitements longs dans ce registre : l'outil rend la main,
+// la conversation continue, et la fin est annoncée par le bus d'événements.
+
+const enCours = new Map()
+
+export function lancerFile(q) {
+  const existant = enCours.get(q.id)
+  if (existant) return existant.promesse
+  const abandon = new AbortController()
+  const promesse = executerFile(q, { signal: abandon.signal })
+    .catch((err) => {
+      q.statut = 'echec'
+      q.erreur = String(err?.message || err)
+      saveQueue(q)
+      return resume(q)
+    })
+    .then((rapport) => {
+      enCours.delete(q.id)
+      return rapport
+    })
+  enCours.set(q.id, { q, abandon, promesse })
+  return promesse
+}
+
+export function arreterFile(id) {
+  const actif = enCours.get(id)
+  if (!actif) throw new Error(`Aucun traitement « ${id} » en cours.`)
+  actif.abandon.abort()
+  return { id, arrete: true }
+}
+
+export function filesEnCours() {
+  return [...enCours.values()].map(({ q }) => resume(loadQueue(q.id)))
+}
+
+/** Annule une file préparée mais jamais lancée (validation refusée). */
+export function annulerFile(q, raison) {
+  q.statut = 'annule'
+  logQueue(q, 'info', raison || 'Annulé avant exécution.')
+  saveQueue(q)
+  return resume(q)
 }
 
 // ------------------------------------------------------- fabriques de files

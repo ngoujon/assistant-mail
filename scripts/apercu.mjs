@@ -24,7 +24,6 @@ const SCENARIO = [
       k: 'permission',
       id: 'p1',
       toolName: 'mcp__mailzen__deplacer_dossier',
-      hint: 'Cette action touche au contenu de tes boîtes mail.',
       allowAlways: false,
       title: 'Déplacer toute une branche ?',
       summary: {
@@ -80,6 +79,32 @@ app.whenReady().then(async () => {
     await new Promise((r) => setTimeout(r, 80))
   }
 
+  // Le point du jour : écrire pendant que ça travaille doit être possible.
+  await win.webContents.executeJavaScript(`window.mailzen._fire(${JSON.stringify({ k: 'status', state: 'thinking' })})`)
+  await win.webContents.executeJavaScript(
+    `(() => {
+       const box = document.getElementById('input')
+       box.value = 'et pendant ce temps, sors-moi la liste des abonnements'
+       box.dispatchEvent(new Event('input'))
+       document.getElementById('btn-send').click()
+     })()`,
+  )
+  await new Promise((r) => setTimeout(r, 120))
+  const envoyePendant = await win.webContents.executeJavaScript(
+    "!!document.querySelector('.msg.user.enfile') && document.querySelectorAll('.msg.user').length",
+  )
+  const boutonArret = await win.webContents.executeJavaScript("!!document.querySelector('.file .stop')")
+  // L'agent reprend la parole : le marqueur « en attente » doit disparaître.
+  await win.webContents.executeJavaScript(`window.mailzen._fire(${JSON.stringify({ k: 'text-start' })})`)
+  await win.webContents.executeJavaScript(`window.mailzen._fire(${JSON.stringify({ k: 'text-delta', text: 'Je lance les deux : le déplacement tourne en fond, je te sors les abonnements.' })})`)
+  await new Promise((r) => setTimeout(r, 120))
+  const marqueurRetire = await win.webContents.executeJavaScript("document.querySelectorAll('.msg.user.enfile').length === 0")
+  await win.webContents.executeJavaScript(
+    `window.mailzen._fire(${JSON.stringify({ k: 'file', id: 'f1', intitule: 'Déplacement de 342 messages — Perso → Pro', total: 342, faits: 342, echecs: 0, message: 'termine', fini: true, statut: 'termine' })})`,
+  )
+  await new Promise((r) => setTimeout(r, 120))
+  const arretRetire = await win.webContents.executeJavaScript("!document.querySelector('.file .stop') && !!document.querySelector('.file.fini')")
+
   await new Promise((r) => setTimeout(r, 500))
   const rendus = await win.webContents.executeJavaScript("document.querySelectorAll('#thread > *').length")
   const comptes = await win.webContents.executeJavaScript("document.querySelectorAll('#comptes .compte').length")
@@ -94,6 +119,9 @@ app.whenReady().then(async () => {
   await new Promise((r) => setTimeout(r, 200))
   const apres = await win.webContents.executeJavaScript("document.querySelectorAll('.perm.answered').length")
 
+  console.log('envoi pendant travail :', envoyePendant ? `ok, ${envoyePendant} messages` : 'BLOQUÉ')
+  console.log('marqueur « en attente » retiré :', marqueurRetire)
+  console.log('bouton d\'arrêt de la file     :', boutonArret, '→ retiré à la fin :', arretRetire)
   console.log('blocs rendus      :', rendus)
   console.log('comptes affichés  :', comptes)
   console.log('jauge de la file  :', largeurJauge)
@@ -102,6 +130,7 @@ app.whenReady().then(async () => {
   console.log('capture           :', out)
 
   const ok = rendus > 5 && comptes === 2 && largeurJauge === '100%' && apres === 1 && !erreurs.length
+    && envoyePendant === 2 && marqueurRetire && boutonArret && arretRetire
   console.log(ok ? 'APERÇU OK' : 'APERÇU ÉCHEC')
   app.exit(ok ? 0 : 1)
 })

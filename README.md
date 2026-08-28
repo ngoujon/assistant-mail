@@ -4,8 +4,8 @@ Une petite app macOS qui ouvre un assistant conversationnel — un agent Claude 
 déguisé en fenêtre — branché en **IMAP et SMTP** sur tes vraies boîtes mail.
 
 C'est « Claude Code lancé dans un dossier », mais le dossier c'est ton courrier :
-mêmes capacités (Bash, fichiers, web), plus 19 outils qui parlent aux serveurs de
-messagerie. Tu dialogues, il exécute.
+mêmes capacités (Bash, fichiers, web), plus une vingtaine d'outils qui parlent aux
+serveurs de messagerie. Tu dialogues, il exécute.
 
 > Range le dossier Dupond par année · Combien j'ai d'abonnements newsletters ? ·
 > Supprime les alertes Indeed de ma boîte de réception · Déplace tout l'historique
@@ -66,18 +66,48 @@ Ce qui en découle, et qui est vérifié par `npm test` (35 assertions contre un
 
 Journaux et copies brutes : menu **Conversation → Ouvrir le coffre et les journaux**.
 
-## Les cartes de validation
+## Parler pendant qu'il travaille
 
-Déplacer, supprimer, renommer, désabonner, envoyer : chacune ouvre une carte qui dit en
-clair ce qui va se passer — boîte source, dossier, sélection, destination — et non le JSON
-de l'outil. Le détail technique reste à un clic.
+Le champ de saisie n'est **jamais bloqué**. Un message écrit pendant qu'il travaille rejoint
+sa file d'entrée : le SDK le lui remet à la respiration suivante et il **refait son plan
+avec** — comme dans Claude Code. Le message s'affiche estompé, marqué *pris en compte à la
+prochaine étape*, jusqu'à ce qu'il reprenne la parole.
 
-Ces cartes **n'ont pas de bouton « Toujours »** : chaque action qui touche au contenu se
-valide une par une. Au clavier : `↩` autorise, `esc` refuse — `↩` ne valide que si le champ
-de saisie est vide, sinon la phrase en cours part comme message.
+Tu peux donc lui demander deux choses coup sur coup, ou changer d'avis en cours de route.
+Le bouton reste un bouton d'envoi tant qu'il y a du texte ; il n'arrête l'agent que sur un
+champ vide (ou `esc`).
 
-Sans confirmation : toute lecture, et — décochable dans les réglages — créer un dossier
-et marquer des messages.
+Un traitement long ne monopolise plus la conversation : au bout de **15 secondes**, l'outil
+rend la main et le déplacement **continue en arrière-plan**. Une carte affiche sa
+progression, avec un bouton *Arrêter* (le travail déjà fait est conservé, la file reste
+reprenable). Quand il a fini, l'assistant l'annonce de lui-même.
+
+## Ce qui demande une validation, et ce qui n'en demande pas
+
+Ce que tu demandes s'exécute. On ne t'interrompt que pour ce qui le mérite, et la décision
+est prise **après** la préparation de la file — la carte annonce donc un chiffre exact, pas
+une estimation sur critères.
+
+| Action | Validation |
+|---|---|
+| Lire, chercher, inventorier | jamais |
+| Créer / renommer un dossier, marquer des messages | jamais |
+| Déplacer, mettre à la corbeille | au-delà du seuil réglé (défaut : 50 messages) |
+| Effacer définitivement | **toujours** |
+| Supprimer un dossier avec son contenu | **toujours** |
+| Envoyer un e-mail, se désabonner par `mailto` | **toujours** (ça sort de la machine) |
+
+Le seuil se règle dans ⚙ : *chaque action*, 10, 50, 200, ou *jamais*. Même sur *jamais*,
+les trois lignes en gras restent validées.
+
+Les cartes disent en clair ce qui va se passer — boîte, dossier, sélection, destination —
+et non le JSON de l'outil ; le détail technique reste à un clic. Elles **n'ont pas de bouton
+« Toujours »**. Au clavier : `↩` autorise, `esc` refuse — `↩` ne valide que si le champ de
+saisie est vide, sinon la phrase en cours part comme message.
+
+L'assistant, lui, a pour consigne de ne **jamais** redemander dans la conversation une
+confirmation que tu viens de donner. Il ne s'arrête que s'il voit un vrai problème : un
+critère qui ramène cent fois plus que prévu, une ambiguïté sur le dossier visé.
 
 ## Les garde-fous côté agent
 
@@ -100,8 +130,8 @@ src/preload.cjs         pont contextIsolation (aucun accès Node côté page)
 src/agent/session.mjs   session Claude Agent SDK : options, routage, permissions
 src/agent/prompt.mjs    personnalité et règles (PROMPT_VERSION à incrémenter si elles changent)
 src/agent/gardes.mjs    hooks PreToolUse : ce que le prompt ne peut pas garantir
-src/agent/outils.mjs    serveur MCP interne : les 19 outils mail
-src/agent/resume.mjs    traduction des demandes de validation en français
+src/agent/outils.mjs    serveur MCP interne : les outils mail et leur politique de validation
+src/agent/resume.mjs    description des critères, cartes des outils système
 src/mail/transfert.mjs  le moteur : file, vérification, coffre, reprise
 src/mail/file.mjs       le journal d'un traitement, réécrit après chaque message
 src/mail/imap.mjs       connexions IMAP/SMTP, plafond par compte
@@ -111,6 +141,7 @@ src/mail/actions.mjs    drapeaux, désabonnement, envoi
 src/mail/accounts.mjs   les comptes, mots de passe chiffrés
 src/renderer/           l'interface (chat, cartes, réglages, progression)
 scripts/test-transfert.mjs  le contrat du moteur, contre un serveur simulé
+scripts/test-politique.mjs  le contrat des validations : pas de double confirmation
 ```
 
 Données : `~/Library/Application Support/Assistant MailZen/`
@@ -120,7 +151,7 @@ Données : `~/Library/Application Support/Assistant MailZen/`
 
 ```bash
 npm start        # lance l'app sans l'installer
-npm test         # le moteur de transfert contre un serveur IMAP simulé
+npm test         # moteur de transfert (serveur simulé) + politique de validation
 npm run selftest # démarre une vraie session agent, sans rien modifier
 npm run build    # construit le .app dans build/
 ```

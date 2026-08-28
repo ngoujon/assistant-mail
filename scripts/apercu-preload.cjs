@@ -9,7 +9,7 @@ const COMPTES = [
 ]
 
 contextBridge.exposeInMainWorld('mailzen', {
-  init: async () => ({ config: { model: 'claude-opus-5', autoDoux: true }, workspace: '/tmp', comptes: COMPTES, version: '2.0.0' }),
+  init: async () => ({ config: { model: 'claude-opus-5', seuilConfirmation: 50 }, workspace: '/tmp', comptes: COMPTES, version: '2.0.0' }),
   send: () => {},
   interrupt: () => {},
   newChat: () => {},
@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('mailzen', {
   replyPermission: () => {},
   comptes: { list: async () => COMPTES, detect: async () => ({ ok: false }), test: async () => ({}), save: async () => ({ ok: true }), remove: async () => COMPTES },
   traitements: async () => [],
+  arreterTraitement: async () => ({ arrete: true }),
   openWorkspace: () => {},
   openData: () => {},
   openExternal: () => {},

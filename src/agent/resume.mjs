@@ -35,111 +35,14 @@ function dateFr(v) {
   return Number.isNaN(+d) ? String(v) : d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
-const PREFIXE = 'mcp__mailzen__'
-
 /**
+ * Résumé d'une demande d'autorisation portant sur un outil système (Bash, fichiers).
+ * Les outils mail, eux, composent leur propre carte : ils connaissent le nombre
+ * exact de messages concernés, ce qu'une lecture des critères ne donnerait pas.
  * @returns {{title: string, lines: string[], danger?: boolean} | null}
  */
 export function resumerPermission(toolName, input) {
-  const i = input || {}
-  if (!toolName.startsWith(PREFIXE)) return resumerSysteme(toolName, i)
-  const nom = toolName.slice(PREFIXE.length)
-
-  switch (nom) {
-    case 'deplacer_messages': {
-      const source = `${i.compte_source} · ${i.dossier_source}`
-      const cible = `${i.compte_cible || i.compte_source} · ${i.dossier_cible}`
-      return {
-        title: i.copier ? 'Copier des messages ?' : 'Déplacer des messages ?',
-        lines: [
-          `${source}\n→ ${cible}`,
-          `Sélection : ${decrireCriteres(i.criteres)}`,
-          i.copier
-            ? 'Copie seule : rien ne quitte la source.'
-            : 'Chaque message est relu à destination avant d\'être retiré de la source.',
-        ],
-      }
-    }
-
-    case 'deplacer_dossier':
-      return {
-        title: i.copier ? 'Copier toute une branche ?' : 'Déplacer toute une branche ?',
-        lines: [
-          `${i.compte_source} · ${i.dossier} (et ses sous-dossiers)\n→ ${i.compte_cible} · ${i.dossier_cible}`,
-          'L\'arborescence est recréée à destination, puis les messages passent un par un.',
-          i.copier ? 'Copie seule : la branche d\'origine reste en place.' : 'La branche d\'origine sera vidée, message par message, après vérification.',
-        ],
-      }
-
-    case 'supprimer_messages':
-      return {
-        title: i.definitif ? 'Effacer définitivement des messages ?' : 'Mettre des messages à la corbeille ?',
-        lines: [
-          `${i.compte} · ${i.dossier}`,
-          `Sélection : ${decrireCriteres(i.criteres)}`,
-          i.definitif
-            ? 'IRRÉVERSIBLE côté serveur. Une copie brute reste sur le disque, dans le coffre.'
-            : 'Les messages partent à la corbeille : récupérables tant qu\'elle n\'est pas vidée.',
-        ],
-        danger: !!i.definitif,
-      }
-
-    case 'supprimer_dossier':
-      return {
-        title: `Supprimer le dossier ${guillemets(i.chemin || '')} ?`,
-        lines: [
-          `${i.compte} · ${i.chemin}`,
-          i.vraiment_vider
-            ? 'AVEC son contenu : les messages restants sont perdus, sans copie.'
-            : 'Refusé automatiquement si le dossier n\'est pas vide.',
-        ],
-        danger: !!i.vraiment_vider,
-      }
-
-    case 'renommer_dossier':
-      return {
-        title: 'Renommer un dossier ?',
-        lines: [`${i.compte}\n${i.avant}\n→ ${i.apres}`, 'Les sous-dossiers suivent le nouveau chemin.'],
-      }
-
-    case 'creer_dossier':
-      return { title: 'Créer un dossier ?', lines: [`${i.compte} · ${i.chemin}`] }
-
-    case 'marquer_messages': {
-      const quoi = []
-      if (i.lu === true) quoi.push('lus')
-      if (i.lu === false) quoi.push('non lus')
-      if (i.suivi === true) quoi.push('suivis')
-      if (i.suivi === false) quoi.push('non suivis')
-      return {
-        title: `Marquer ${i.uids?.length || 0} message(s) ?`,
-        lines: [`${i.compte} · ${i.dossier}`, `Nouvel état : ${quoi.join(', ') || 'inchangé'}`],
-      }
-    }
-
-    case 'desabonner':
-      return {
-        title: `Se désabonner de ${guillemets(i.liste || i.cible || '')} ?`,
-        lines: [
-          i.type === 'http_un_clic' ? 'Requête « un clic » envoyée au serveur de la liste.'
-            : i.type === 'mailto' ? `E-mail de désabonnement envoyé depuis ${i.compte}.`
-            : 'Aucune requête : le lien te sera simplement rendu.',
-          String(i.cible || ''),
-        ],
-      }
-
-    case 'envoyer_message':
-      return {
-        title: 'Envoyer cet e-mail ?',
-        lines: [`De : ${i.compte}\nÀ : ${i.a}${i.copie ? `\nCopie : ${i.copie}` : ''}`, `Objet : ${i.sujet}`, String(i.texte || '').slice(0, 400)],
-      }
-
-    case 'reprendre_traitement':
-      return { title: 'Reprendre le traitement interrompu ?', lines: [String(i.id || '')] }
-
-    default:
-      return null
-  }
+  return resumerSysteme(toolName, input || {})
 }
 
 function resumerSysteme(toolName, i) {
