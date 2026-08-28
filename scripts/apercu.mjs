@@ -1,0 +1,107 @@
+// Prévisualisation de l'interface, sans agent : rejoue une conversation type,
+// vérifie les raccourcis clavier, puis écrit une capture PNG. Usage :
+//   npx electron scripts/apercu.mjs [sortie.png]
+import { app, BrowserWindow, nativeTheme } from 'electron'
+import path from 'node:path'
+import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const out = process.argv[2] || path.join(root, 'apercu.png')
+
+const SCENARIO = [
+  { evt: { k: 'ready', sessionId: 'x', model: 'claude-opus-5', mail: 'connected' } },
+  { user: 'Déplace le dossier Dupond de Perso vers Pro dans Archives' },
+  { evt: { k: 'tool-use', id: 't0', name: 'mcp__mailzen__lister_dossiers', input: { compte: 'Perso' } } },
+  { evt: { k: 'tool-result', id: 't0', name: 'mcp__mailzen__lister_dossiers', ok: true, preview: '42 dossiers' } },
+  { evt: { k: 'tool-use', id: 't1', name: 'mcp__mailzen__apercu_dossier', input: { compte: 'Perso', dossier: 'Dupond' } } },
+  { evt: { k: 'tool-result', id: 't1', name: 'mcp__mailzen__apercu_dossier', ok: true, preview: '4 dossiers, 342 messages' } },
+  { evt: { k: 'text-start' } },
+  { evt: { k: 'text-delta', text: 'La branche **Dupond** de *Perso* contient **342 messages** répartis sur 4 dossiers :\n\n- `Dupond` — 12\n- `Dupond/2019` — 128\n- `Dupond/2020` — 154\n- `Dupond/Contrats` — 48\n\nJe recrée la même arborescence dans **Pro** sous `Archives/Dupond`. Chaque message est copié sur disque, déposé, **relu à destination**, puis retiré de Perso. Compte ~6 min.' } },
+  { evt: { k: 'result', isError: false, costUsd: 0.04, durationMs: 5200 } },
+  {
+    evt: {
+      k: 'permission',
+      id: 'p1',
+      toolName: 'mcp__mailzen__deplacer_dossier',
+      hint: 'Cette action touche au contenu de tes boîtes mail.',
+      allowAlways: false,
+      title: 'Déplacer toute une branche ?',
+      summary: {
+        lines: [
+          'Perso · Dupond (et ses sous-dossiers)\n→ Pro · Archives/Dupond',
+          "L'arborescence est recréée à destination, puis les messages passent un par un.",
+          'La branche d\'origine sera vidée, message par message, après vérification.',
+        ],
+      },
+      input: { compte_source: 'Perso', dossier: 'Dupond', compte_cible: 'Pro', dossier_cible: 'Archives/Dupond' },
+    },
+  },
+]
+
+app.whenReady().then(async () => {
+  if (process.env.THEME) nativeTheme.themeSource = process.env.THEME
+  const win = new BrowserWindow({
+    width: 500, height: 800, show: false,
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 14, y: 18 },
+    backgroundColor: process.env.THEME === 'dark' ? '#16181e' : '#f8fafd',
+    webPreferences: { preload: path.join(root, 'scripts', 'apercu-preload.cjs'), contextIsolation: true },
+  })
+
+  const erreurs = []
+  win.webContents.on('console-message', (d) => {
+    if (d.level === 'error' || d.level === 3) erreurs.push(d.message)
+  })
+  win.webContents.on('render-process-gone', (_e, d) => erreurs.push(`renderer perdu : ${d.reason}`))
+  await win.loadFile(path.join(root, 'src', 'renderer', 'index.html'))
+
+  for (const etape of SCENARIO) {
+    if (etape.user) {
+      await win.webContents.executeJavaScript(
+        `(() => {
+           const box = document.getElementById('input')
+           box.value = ${JSON.stringify(etape.user)}
+           box.dispatchEvent(new Event('input'))
+           document.getElementById('btn-send').click()
+         })()`,
+      )
+    } else {
+      await win.webContents.executeJavaScript(`window.mailzen._fire(${JSON.stringify(etape.evt)})`)
+    }
+    await new Promise((r) => setTimeout(r, 60))
+  }
+
+  // Une file en cours : la barre de progression doit apparaître et avancer.
+  for (const [faits, message] of [[0, 'démarrage'], [128, 'Facture 2019-04'], [341, 'Contrat cadre']]) {
+    await win.webContents.executeJavaScript(
+      `window.mailzen._fire(${JSON.stringify({ k: 'file', id: 'f1', intitule: 'Déplacement de 342 messages — Perso → Pro', total: 342, faits, echecs: 0, message })})`,
+    )
+    await new Promise((r) => setTimeout(r, 80))
+  }
+
+  await new Promise((r) => setTimeout(r, 500))
+  const rendus = await win.webContents.executeJavaScript("document.querySelectorAll('#thread > *').length")
+  const comptes = await win.webContents.executeJavaScript("document.querySelectorAll('#comptes .compte').length")
+  const largeurJauge = await win.webContents.executeJavaScript("document.querySelector('.file .barre i')?.style.width || ''")
+
+  const image = await win.webContents.capturePage()
+  fs.writeFileSync(out, image.toPNG())
+
+  // Raccourci clavier : « esc » doit refuser la carte en attente.
+  const avant = await win.webContents.executeJavaScript("document.querySelectorAll('.perm.answered').length")
+  await win.webContents.executeJavaScript("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))")
+  await new Promise((r) => setTimeout(r, 200))
+  const apres = await win.webContents.executeJavaScript("document.querySelectorAll('.perm.answered').length")
+
+  console.log('blocs rendus      :', rendus)
+  console.log('comptes affichés  :', comptes)
+  console.log('jauge de la file  :', largeurJauge)
+  console.log('esc sur la carte  :', `${avant} -> ${apres} répondue(s)`)
+  console.log('erreurs console   :', erreurs.length ? erreurs.join(' | ') : 'aucune')
+  console.log('capture           :', out)
+
+  const ok = rendus > 5 && comptes === 2 && largeurJauge === '100%' && apres === 1 && !erreurs.length
+  console.log(ok ? 'APERÇU OK' : 'APERÇU ÉCHEC')
+  app.exit(ok ? 0 : 1)
+})

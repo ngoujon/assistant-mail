@@ -1,7 +1,6 @@
 node_modules/
-data/
-.env
+build/
+assets/AppIcon.iconset/
 *.log
 .DS_Store
-.playwright-mcp/
-*.png
+/apercu.png

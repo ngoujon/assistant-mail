@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self';" />
+    <title>Assistant MailZen</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="titlebar">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2.6" y="5" width="18.8" height="14" rx="3" />
+            <path d="M3.4 7.4l7.3 5.2a2.2 2.2 0 0 0 2.6 0l7.3-5.2" />
+          </svg>
+        </div>
+        <div class="brand-text">
+          <div class="name">Assistant MailZen</div>
+          <div class="sub" id="status-line"><span class="dot pending"></span>Démarrage…</div>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="btn-new" class="icon-btn" title="Nouvelle conversation (⌘N)" aria-label="Nouvelle conversation">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+        </button>
+        <button id="btn-settings" class="icon-btn" title="Réglages et boîtes mail" aria-label="Réglages">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <circle cx="12" cy="12" r="3.2" />
+            <path d="M12 2.8v2.4M12 18.8v2.4M21.2 12h-2.4M5.2 12H2.8M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7M18.5 18.5l-1.7-1.7M7.2 7.2L5.5 5.5" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <section id="settings" class="settings hidden">
+      <label class="row">
+        <span>Modèle</span>
+        <select id="model">
+          <option value="claude-opus-5">Opus 5 — le plus fin</option>
+          <option value="claude-sonnet-5">Sonnet 5 — plus rapide</option>
+          <option value="claude-haiku-4-5">Haiku 4.5 — express</option>
+        </select>
+      </label>
+      <label class="row">
+        <span>Créer un dossier / marquer sans confirmer</span>
+        <input type="checkbox" id="auto-doux" />
+      </label>
+      <p class="note-inline">Déplacer, supprimer, désabonner et envoyer demandent toujours ta validation, une action à la fois.</p>
+
+      <h4>Boîtes mail</h4>
+      <div id="comptes" class="comptes"></div>
+
+      <div id="form-compte" class="form-compte">
+        <input type="email" id="c-email" placeholder="adresse@exemple.fr" autocomplete="off" spellcheck="false" />
+        <input type="password" id="c-pass" placeholder="mot de passe (ou mot de passe d'application)" autocomplete="off" />
+        <input type="text" id="c-nom" placeholder="nom court : Perso, Pro…" autocomplete="off" />
+        <div class="avance">
+          <div class="duo">
+            <input type="text" id="c-imap-host" placeholder="serveur IMAP" spellcheck="false" />
+            <input type="number" id="c-imap-port" class="port" placeholder="993" />
+          </div>
+          <label class="coche"><input type="checkbox" id="c-imap-secure" checked /> IMAP chiffré (SSL/TLS)</label>
+          <div class="duo">
+            <input type="text" id="c-smtp-host" placeholder="serveur SMTP" spellcheck="false" />
+            <input type="number" id="c-smtp-port" class="port" placeholder="587" />
+          </div>
+          <label class="coche"><input type="checkbox" id="c-smtp-secure" /> SMTP chiffré dès la connexion (port 465)</label>
+          <input type="text" id="c-user" placeholder="identifiant si différent de l'adresse" spellcheck="false" />
+          <label class="coche"><input type="checkbox" id="c-cert" /> accepter un certificat non vérifié</label>
+        </div>
+        <div class="actions-form">
+          <button id="btn-detect" class="primary">Détecter et connecter</button>
+          <button id="btn-avance" class="link-btn">Réglages manuels</button>
+        </div>
+        <div id="c-etat" class="etat"></div>
+      </div>
+
+      <button id="btn-workspace" class="link-btn">Ouvrir l'espace de travail…</button>
+      <button id="btn-data" class="link-btn">Ouvrir le coffre et les journaux…</button>
+    </section>
+
+    <main id="scroll">
+      <div id="thread"></div>
+    </main>
+
+    <footer>
+      <div id="composer">
+        <textarea id="input" rows="1" placeholder="Que fait-on de ton courrier ?" autofocus></textarea>
+        <button id="btn-send" class="send" aria-label="Envoyer">
+          <svg class="ic-send" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 19V5M5 12l7-7 7 7" />
+          </svg>
+          <svg class="ic-stop" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <rect x="6" y="6" width="12" height="12" rx="2.5" />
+          </svg>
+        </button>
+      </div>
+      <div class="hint"><kbd>↩</kbd> envoyer · <kbd>⇧↩</kbd> nouvelle ligne · <kbd>esc</kbd> stop</div>
+    </footer>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
