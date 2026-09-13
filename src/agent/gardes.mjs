@@ -1,9 +1,8 @@
-// Garde-fous déterministes. Le prompt dit à l'assistant de regarder avant d'agir ;
-// ces hooks PreToolUse le lui imposent. Ils refusent l'appel et expliquent quoi
-// faire — le modèle corrige sa manœuvre au lieu de la tenter à l'aveugle.
+// Garde-fous déterministes, vérifiés avant chaque appel d'outil. Le prompt dit à
+// l'assistant de regarder avant d'agir ; ceux-ci le lui imposent. Ils refusent
+// l'appel et expliquent quoi faire — le modèle corrige sa manœuvre au lieu de la
+// tenter à l'aveugle.
 import { resolveAccount } from '../mail/accounts.mjs'
-
-const PREFIXE = 'mcp__mailzen__'
 
 export class GardeMail {
   constructor() {
@@ -24,9 +23,8 @@ export class GardeMail {
 
   /** Mémorise l'arborescence dès que l'assistant la lit. */
   noteToolResult(toolName, brut) {
-    if (!brut || !toolName.startsWith(PREFIXE)) return
-    const nom = toolName.slice(PREFIXE.length)
-    if (nom !== 'lister_dossiers' && nom !== 'apercu_dossier') return
+    if (!brut || !toolName) return
+    if (toolName !== 'lister_dossiers' && toolName !== 'apercu_dossier') return
     let data
     try { data = JSON.parse(brut) } catch { return }
     const compte = data?.compte
@@ -36,7 +34,7 @@ export class GardeMail {
       const chemin = typeof d === 'string' ? d : d.chemin
       if (chemin) set.add(chemin)
     }
-    if (nom === 'apercu_dossier' && data.racine) {
+    if (toolName === 'apercu_dossier' && data.racine) {
       if (!this.dossiersInspectes.has(compte)) this.dossiersInspectes.set(compte, new Set())
       this.dossiersInspectes.get(compte).add(data.racine)
     }
@@ -61,11 +59,10 @@ export class GardeMail {
   }
 
   verifier(toolName, input) {
-    if (!toolName.startsWith(PREFIXE)) return null
-    const nom = toolName.slice(PREFIXE.length)
+    if (!toolName) return null
     const i = input || {}
 
-    switch (nom) {
+    switch (toolName) {
       case 'deplacer_messages': {
         const source = this.#connu(i.compte_source, i.dossier_source)
         if (!source.ok) return source.raison
@@ -133,28 +130,6 @@ export class GardeMail {
 
       default:
         return null
-    }
-  }
-
-  /** Configuration `hooks` passée à query(). */
-  hooks() {
-    const refuser = (raison) => ({
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'deny',
-        permissionDecisionReason: raison,
-      },
-    })
-    return {
-      PreToolUse: [
-        {
-          matcher: `${PREFIXE}.*`,
-          hooks: [async (entree) => {
-            const raison = this.verifier(entree?.tool_name, entree?.tool_input)
-            return raison ? refuser(raison) : { continue: true }
-          }],
-        },
-      ],
     }
   }
 }

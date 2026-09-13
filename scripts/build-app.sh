@@ -1,17 +1,17 @@
 #!/bin/bash
-# Construit « Assistant MailZen.app » dans build/.
+# Construit « Assistant Mail.app » dans build/.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 [ -f assets/icon.icns ] || bash scripts/make-icon.sh
 
 rm -rf build
-npx @electron/packager . "Assistant MailZen" \
+npx @electron/packager . "Assistant Mail" \
   --platform=darwin \
   --no-asar \
   --arch=arm64 \
   --icon=assets/icon.icns \
-  --app-bundle-id=com.ngoujon.assistant-mailzen \
+  --app-bundle-id=com.ngoujon.assistant-mail \
   --app-category-type=public.app-category.productivity \
   --app-version="$(node -p "require('./package.json').version")" \
   --prune=true \
@@ -19,7 +19,7 @@ npx @electron/packager . "Assistant MailZen" \
   --out=build \
   --overwrite
 
-APP="build/Assistant MailZen-darwin-arm64/Assistant MailZen.app"
+APP="build/Assistant Mail-darwin-arm64/Assistant Mail.app"
 
 # @electron/packager ne pose plus l'icône .icns : on l'installe nous-mêmes.
 cp assets/icon.icns "$APP/Contents/Resources/icon.icns"

@@ -1,10 +1,10 @@
 {
-  "name": "mailzen",
-  "productName": "Assistant MailZen",
-  "version": "2.1.0",
+  "name": "assistant-mail",
+  "productName": "Assistant Mail",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
-  "description": "Assistant conversationnel qui pilote vos boîtes mail en IMAP/SMTP (Claude Agent SDK)",
+  "description": "Assistant conversationnel qui pilote vos boîtes mail en IMAP/SMTP, avec une IA servie en local",
   "author": "ngoujon",
   "main": "src/main.mjs",
   "scripts": {
@@ -16,7 +16,6 @@
     "selftest": "node scripts/selftest.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.250",
     "imapflow": "^1.0.171",
     "mailparser": "^3.7.2",
     "nodemailer": "^6.9.16",

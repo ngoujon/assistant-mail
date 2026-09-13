@@ -3,7 +3,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { setDataRoot, P } from './mail/paths.mjs'
-import { AgentSession } from './agent/session.mjs'
+import { AgentSession, IA_DEFAUT } from './agent/session.mjs'
 import { PROMPT_VERSION } from './agent/prompt.mjs'
 import { publicAccounts, saveAccount, deleteAccount } from './mail/accounts.mjs'
 import { guessCandidates, providerNote } from './mail/autodiscover.mjs'
@@ -11,11 +11,15 @@ import { testImapRaw, testSmtpRaw } from './mail/imap.mjs'
 import { onProgress, onDone } from './mail/evenements.mjs'
 import { listQueues } from './mail/file.mjs'
 import { arreterFile } from './mail/transfert.mjs'
+import { listerModeles } from './agent/llm.mjs'
+import { oublierConversation } from './agent/memoire.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const CONFIG_DEFAUT = {
-  model: 'claude-opus-5',
+  // Le moteur : un serveur OpenAI-compatible sur le réseau local. Aucune
+  // requête ne part sur Internet, ni vers Claude, ni vers personne d'autre.
+  ia: { ...IA_DEFAUT },
   // Nombre de messages au-delà duquel un traitement demande validation.
   // 0 = toujours demander, -1 = ne demander que pour l'irréversible.
   seuilConfirmation: 50,
@@ -39,7 +43,11 @@ let seqPermission = 0
 function loadConfig() {
   configPath = path.join(app.getPath('userData'), 'reglages.json')
   try {
-    config = { ...CONFIG_DEFAUT, ...JSON.parse(fs.readFileSync(configPath, 'utf8')) }
+    const lu = JSON.parse(fs.readFileSync(configPath, 'utf8'))
+    // Les réglages d'avant le passage en local citaient un modèle Claude : on
+    // les laisse tomber au lieu de les envoyer à un serveur qui ne le connaît pas.
+    delete lu.model
+    config = { ...CONFIG_DEFAUT, ...lu, ia: { ...IA_DEFAUT, ...(lu.ia || {}) } }
   } catch {
     config = { ...CONFIG_DEFAUT }
   }
@@ -62,7 +70,7 @@ function ensureWorkspace() {
   const lisezMoi = path.join(workspace, 'LISEZ-MOI.md')
   if (!fs.existsSync(lisezMoi)) {
     fs.writeFileSync(lisezMoi, [
-      "# Espace de travail de l'Assistant MailZen",
+      "# Espace de travail de l'Assistant Mail",
       '',
       "C'est ici que l'assistant range les inventaires, plans de rangement et comptes rendus",
       "qu'il produit. Tu peux y déposer tes propres fichiers : il sait les lire.",
@@ -83,7 +91,7 @@ function createWindow() {
     minWidth: 400,
     minHeight: 500,
     show: false,
-    title: 'Assistant MailZen',
+    title: 'Assistant Mail',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 14, y: 18 },
     vibrancy: 'sidebar',
@@ -233,7 +241,7 @@ function wireIpc() {
   ipcMain.handle('app:init', () => {
     setImmediate(viderAttente)
     return {
-      config: { model: config.model, seuilConfirmation: config.seuilConfirmation },
+      config: { ia: config.ia, seuilConfirmation: config.seuilConfirmation },
       workspace,
       comptes: publicAccounts(),
       version: app.getVersion(),
@@ -245,13 +253,25 @@ function wireIpc() {
   ipcMain.on('chat:new', () => {
     refuserToutes('Nouvelle conversation.')
     config.lastSessionId = null
+    oublierConversation()
     saveConfig()
     session.start({})
   })
   ipcMain.on('chat:config', (_e, patch) => {
-    Object.assign(config, patch)
+    const serveurAvant = config.ia?.baseUrl
+    if (patch.ia) config.ia = { ...config.ia, ...patch.ia }
+    for (const [k, v] of Object.entries(patch)) if (k !== 'ia') config[k] = v
     saveConfig()
-    if (patch.model) session.setModel(patch.model)
+    // Changer de serveur, c'est repartir de zéro : on vérifie qu'il répond.
+    if (patch.ia?.baseUrl && patch.ia.baseUrl !== serveurAvant) redemarrerSession()
+  })
+
+  ipcMain.handle('ia:modeles', async (_e, baseUrl) => {
+    try {
+      return { ok: true, modeles: await listerModeles({ baseUrl: baseUrl || config.ia.baseUrl, apiKey: config.ia.apiKey }) }
+    } catch (err) {
+      return { ok: false, erreur: String(err?.message || err) }
+    }
   })
   ipcMain.on('perm:reply', (_e, { id, answer }) => resolvePermission(id, answer))
 
@@ -285,8 +305,9 @@ function wireIpc() {
 }
 
 function redemarrerSession() {
-  refuserToutes('Les boîtes mail ont changé.')
+  refuserToutes('La configuration a changé.')
   config.lastSessionId = null
+  oublierConversation()
   saveConfig()
   session?.start({})
   emit({ k: 'comptes', comptes: publicAccounts() })
@@ -297,7 +318,7 @@ function buildMenu() {
     {
       label: app.name,
       submenu: [
-        { role: 'about', label: "À propos de l'Assistant MailZen" },
+        { role: 'about', label: "À propos de l'Assistant Mail" },
         { type: 'separator' },
         { role: 'hide', label: 'Masquer' },
         { role: 'hideOthers', label: 'Masquer les autres' },
@@ -311,7 +332,14 @@ function buildMenu() {
         {
           label: 'Nouvelle conversation',
           accelerator: 'CmdOrCtrl+N',
-          click: () => { refuserToutes('Nouvelle conversation.'); session.start({}); emit({ k: 'cleared' }) },
+          click: () => {
+            refuserToutes('Nouvelle conversation.')
+            config.lastSessionId = null
+            oublierConversation()
+            saveConfig()
+            session.start({})
+            emit({ k: 'cleared' })
+          },
         },
         // Pas d'accélérateur « Esc » : la touche est traitée dans l'interface, où
         // elle refuse d'abord une demande de validation en attente.
@@ -342,7 +370,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', () => { if (win) { win.show(); win.focus() } })
 
   app.whenReady().then(() => {
-    app.setName('Assistant MailZen')
+    app.setName('Assistant Mail')
     nativeTheme.themeSource = 'system'
     setDataRoot(app.getPath('userData'))
     loadConfig()

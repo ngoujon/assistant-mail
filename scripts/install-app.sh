@@ -1,9 +1,9 @@
 #!/bin/bash
-# Installe « Assistant MailZen.app » dans /Applications et l'ajoute au Dock.
+# Installe « Assistant Mail.app » dans /Applications et l'ajoute au Dock.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-APP_NAME="Assistant MailZen"
+APP_NAME="Assistant Mail"
 SRC="build/${APP_NAME}-darwin-arm64/${APP_NAME}.app"
 
 # Toujours reconstruire : réutiliser un build précédent installe silencieusement

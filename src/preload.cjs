@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
-contextBridge.exposeInMainWorld('mailzen', {
+contextBridge.exposeInMainWorld('assistantMail', {
   init: () => ipcRenderer.invoke('app:init'),
   send: (text) => ipcRenderer.send('chat:send', text),
   interrupt: () => ipcRenderer.send('chat:interrupt'),
@@ -14,6 +14,9 @@ contextBridge.exposeInMainWorld('mailzen', {
     test: (cfg) => ipcRenderer.invoke('comptes:test', cfg),
     save: (cfg) => ipcRenderer.invoke('comptes:save', cfg),
     remove: (id) => ipcRenderer.invoke('comptes:delete', id),
+  },
+  ia: {
+    modeles: (baseUrl) => ipcRenderer.invoke('ia:modeles', baseUrl),
   },
   traitements: () => ipcRenderer.invoke('traitements:list'),
   arreterTraitement: (id) => ipcRenderer.invoke('traitements:arreter', id),

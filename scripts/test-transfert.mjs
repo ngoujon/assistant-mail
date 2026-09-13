@@ -5,8 +5,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-const bac = fs.mkdtempSync(path.join(os.tmpdir(), 'mailzen-test-'))
-process.env.MAILZEN_DATA_DIR = bac
+const bac = fs.mkdtempSync(path.join(os.tmpdir(), 'assistant-mail-test-'))
+process.env.ASSISTANT_MAIL_DATA_DIR = bac
 
 const { FauxServeur, message } = await import('./faux-imap.mjs')
 const { runTransfer } = await import('../src/mail/transfert.mjs')

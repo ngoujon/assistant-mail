@@ -1,15 +1,45 @@
-# Assistant MailZen
+# Assistant Mail
 
-Une petite app macOS qui ouvre un assistant conversationnel — un agent Claude Code
-déguisé en fenêtre — branché en **IMAP et SMTP** sur tes vraies boîtes mail.
+Une petite app macOS qui ouvre un assistant conversationnel branché en **IMAP et SMTP**
+sur tes vraies boîtes mail, et mû par un **modèle qui tourne chez toi**.
 
-C'est « Claude Code lancé dans un dossier », mais le dossier c'est ton courrier :
-mêmes capacités (Bash, fichiers, web), plus une vingtaine d'outils qui parlent aux
-serveurs de messagerie. Tu dialogues, il exécute.
+Rien ne sort de la maison : ni le contenu de tes messages, ni ce que tu écris dans la
+conversation. L'app parle à un serveur **OpenAI-compatible** de ton réseau local
+(LM Studio, llama.cpp, Ollama…) et n'appelle aucune API distante.
+
+Une vingtaine d'outils parlent aux serveurs de messagerie, plus `Bash`, `Read` et `Write`
+sur ta machine. Tu dialogues, il exécute.
 
 > Range le dossier Dupond par année · Combien j'ai d'abonnements newsletters ? ·
 > Supprime les alertes Indeed de ma boîte de réception · Déplace tout l'historique
 > de Perso vers Pro dans Archives/Dupond
+
+## Le moteur : ton serveur d'IA local
+
+L'app attend un serveur OpenAI-compatible à une adresse que tu règles dans ⚙ (défaut :
+`http://localhost:1234/v1`). Elle interroge `/v1/models` pour remplir la liste des
+modèles, et n'utilise que ceux que ce serveur a réellement chargés.
+
+Deux exigences sur le modèle :
+
+- **il doit savoir appeler des outils** (`tool_use`). Sans ça, l'assistant peut discuter
+  mais ne touchera pas à une seule boîte ;
+- **sa fenêtre de contexte doit être large** : les consignes et les schémas des 23 outils
+  pèsent **~5 000 jetons** avant le premier mot de la conversation. Charge le modèle avec
+  **32 000 jetons** (16 000 est le minimum vivable). En dessous, ça peut passer sur une
+  question isolée et casser à la deuxième : le serveur répond « context size has been
+  exceeded », l'app le dit en clair, retente une fois en ne rappelant que la fin de la
+  conversation, puis renonce.
+
+> Attention aux réglages qui rognent la fenêtre sans le dire. Sur la machine de test, LM
+> Studio annonçait 16 384 jetons chargés alors que le serveur refusait tout au-delà de
+> ~4 500 — la **génération spéculative** était active, et c'est le contexte du *modèle
+> brouillon* qui faisait plafond. L'app n'envoie d'ailleurs jamais de `max_tokens` : un
+> serveur local réserve la place demandée dans la fenêtre, et une valeur généreuse la
+> remplit à elle seule.
+
+Un tour de modèle local prend des dizaines de secondes : c'est normal, et la conversation
+reste utilisable pendant ce temps.
 
 ## Installation
 
@@ -69,8 +99,8 @@ Journaux et copies brutes : menu **Conversation → Ouvrir le coffre et les jour
 ## Parler pendant qu'il travaille
 
 Le champ de saisie n'est **jamais bloqué**. Un message écrit pendant qu'il travaille rejoint
-sa file d'entrée : le SDK le lui remet à la respiration suivante et il **refait son plan
-avec** — comme dans Claude Code. Le message s'affiche estompé, marqué *pris en compte à la
+sa file d'entrée : il lui est remis dès que ses outils en cours ont rendu leur résultat, et
+il **refait son plan avec**. Le message s'affiche estompé, marqué *pris en compte à la
 prochaine étape*, jusqu'à ce qu'il reprenne la parole.
 
 Tu peux donc lui demander deux choses coup sur coup, ou changer d'avis en cours de route.
@@ -111,8 +141,10 @@ critère qui ramène cent fois plus que prévu, une ambiguïté sur le dossier v
 
 ## Les garde-fous côté agent
 
-Le prompt (`src/agent/prompt.mjs`) dit à l'assistant de regarder avant d'agir. Les hooks
-`PreToolUse` (`src/agent/gardes.mjs`) le lui **imposent**, parce que le prompt seul ne suffit pas :
+Le prompt (`src/agent/prompt.mjs`) dit à l'assistant de regarder avant d'agir. Les garde-fous
+(`src/agent/gardes.mjs`), vérifiés avant chaque appel d'outil, le lui **imposent** — un petit
+modèle local suit moins bien les consignes qu'un gros modèle distant, et le prompt seul ne
+suffit de toute façon jamais :
 
 - un chemin de dossier qui n'a pas été vu dans `lister_dossiers` est **refusé** (fini les
   dossiers fantômes créés sur une faute de casse) ;
@@ -127,10 +159,14 @@ Le prompt (`src/agent/prompt.mjs`) dit à l'assistant de regarder avant d'agir. 
 ```
 src/main.mjs            processus Electron : fenêtre, IPC, comptes, permissions
 src/preload.cjs         pont contextIsolation (aucun accès Node côté page)
-src/agent/session.mjs   session Claude Agent SDK : options, routage, permissions
+src/agent/session.mjs   la boucle : modèle → outils → résultat, permissions, compaction
+src/agent/llm.mjs       le client du serveur local (flux SSE, appels d'outils, raisonnement)
+src/agent/outillage.mjs déclarer un outil, le décrire en JSON Schema, réparer ses arguments
+src/agent/systeme.mjs   les outils machine : Bash, Read, Write
+src/agent/memoire.mjs   la conversation sur le disque, reprise au démarrage
 src/agent/prompt.mjs    personnalité et règles (PROMPT_VERSION à incrémenter si elles changent)
-src/agent/gardes.mjs    hooks PreToolUse : ce que le prompt ne peut pas garantir
-src/agent/outils.mjs    serveur MCP interne : les outils mail et leur politique de validation
+src/agent/gardes.mjs    vérifications avant appel : ce que le prompt ne peut pas garantir
+src/agent/outils.mjs    les outils mail et leur politique de validation
 src/agent/resume.mjs    description des critères, cartes des outils système
 src/mail/transfert.mjs  le moteur : file, vérification, coffre, reprise
 src/mail/file.mjs       le journal d'un traitement, réécrit après chaque message
@@ -144,14 +180,19 @@ scripts/test-transfert.mjs  le contrat du moteur, contre un serveur simulé
 scripts/test-politique.mjs  le contrat des validations : pas de double confirmation
 ```
 
-Données : `~/Library/Application Support/Assistant MailZen/`
-(`comptes.json`, `cle-secrete`, `files/`, `coffre/`, `Espace de travail/`).
+Données : `~/Library/Application Support/Assistant Mail/`
+(`comptes.json`, `cle-secrete`, `conversation.json`, `files/`, `coffre/`, `Espace de travail/`).
+
+L'app s'appelait « Assistant MailZen » jusqu'à la 3.0, et le dossier de données porte son nom :
+au premier démarrage, comptes, clé de chiffrement, journaux, coffre et espace de travail sont
+**repris automatiquement** depuis l'ancien dossier, une seule fois, sans jamais écraser.
 
 ## Développement
 
 ```bash
 npm start        # lance l'app sans l'installer
 npm test         # moteur de transfert (serveur simulé) + politique de validation
-npm run selftest # démarre une vraie session agent, sans rien modifier
+npm run selftest # démarre une vraie session contre ton serveur local, sans rien modifier
+                 # (accepte une autre adresse : node scripts/selftest.mjs http://hote:1234/v1)
 npm run build    # construit le .app dans build/
 ```

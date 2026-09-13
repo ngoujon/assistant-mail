@@ -8,13 +8,14 @@ const COMPTES = [
   { id: 'c2', nom: 'Pro', email: 'contact@societe.fr', imap: { host: 'ssl0.ovh.net', port: 993, secure: true, user: 'contact@societe.fr' }, smtp: { host: 'ssl0.ovh.net', port: 587, secure: false, user: 'contact@societe.fr' }, etat: 'ok' },
 ]
 
-contextBridge.exposeInMainWorld('mailzen', {
-  init: async () => ({ config: { model: 'claude-opus-5', seuilConfirmation: 50 }, workspace: '/tmp', comptes: COMPTES, version: '2.0.0' }),
+contextBridge.exposeInMainWorld('assistantMail', {
+  init: async () => ({ config: { ia: { baseUrl: 'http://localhost:1234/v1', model: 'qwen/qwen3.8-27b' }, seuilConfirmation: 50 }, workspace: '/tmp', comptes: COMPTES, version: '3.0.0' }),
   send: () => {},
   interrupt: () => {},
   newChat: () => {},
   setConfig: () => {},
   replyPermission: () => {},
+  ia: { modeles: async () => ({ ok: true, modeles: ['qwen/qwen3.8-27b'] }) },
   comptes: { list: async () => COMPTES, detect: async () => ({ ok: false }), test: async () => ({}), save: async () => ({ ok: true }), remove: async () => COMPTES },
   traitements: async () => [],
   arreterTraitement: async () => ({ arrete: true }),
