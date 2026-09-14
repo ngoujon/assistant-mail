@@ -6,7 +6,7 @@
 // fixé dans les réglages. Et comme la décision est prise APRÈS la préparation de
 // la file, la carte annonce un chiffre exact — pas une estimation sur critères.
 import { z } from 'zod'
-import { createSdkMcpServer, tool } from './outillage.mjs'
+import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { publicAccounts, resolveAccount } from '../mail/accounts.mjs'
 import { listFolders, createFolder, renameFolder, deleteFolder } from '../mail/dossiers.mjs'
 import { searchMessages, readMessage, senders, newsletters } from '../mail/messages.mjs'
@@ -41,25 +41,19 @@ const sur = (fn) => async (args, extra) => {
   }
 }
 
-// Ce bloc part au modèle dans cinq outils : chaque mot y est payé cinq fois, et
-// la fenêtre d'un modèle local est étroite. D'où une seule description, dense.
 const CRITERES = z.object({
-  de: z.string().optional(),
-  a: z.string().optional(),
-  sujet: z.string().optional(),
-  texte: z.string().optional(),
-  depuis: z.string().optional(),
-  avant: z.string().optional(),
+  de: z.string().optional().describe("expéditeur ou fragment d'adresse (ex : « indeed.com »)"),
+  a: z.string().optional().describe('destinataire'),
+  sujet: z.string().optional().describe('fragment recherché dans le sujet'),
+  texte: z.string().optional().describe('fragment recherché dans le corps (lent sur un gros dossier)'),
+  depuis: z.string().optional().describe('date ISO : ne garder que les messages postérieurs'),
+  avant: z.string().optional().describe('date ISO : ne garder que les messages antérieurs'),
   non_lus: z.boolean().optional(),
   lus: z.boolean().optional(),
   suivis: z.boolean().optional(),
-  taille_min: z.number().optional(),
-  uids: z.array(z.number()).optional(),
-}).describe(
-  'Filtre IMAP, vide = tout le dossier. de/a : fragment d\'adresse. sujet/texte : ' +
-  'fragment recherché (texte = dans le corps, lent). depuis/avant : dates ISO. ' +
-  'taille_min : octets. uids : liste exacte, prioritaire sur le reste.',
-)
+  taille_min: z.number().optional().describe('taille minimale en octets'),
+  uids: z.array(z.number()).optional().describe('UIDs précis — prioritaire sur tout le reste'),
+}).describe('Critères IMAP. Vide = tous les messages du dossier.')
 
 const pluriel = (n, un, plusieurs) => (n > 1 ? `${n} ${plusieurs}` : `${n} ${un}`)
 
@@ -420,7 +414,7 @@ export function serveurMail(contexte = {}) {
 
   return createSdkMcpServer({
     name: 'assistant-mail',
-    version: '2.1.0',
+    version: '4.0.0',
     instructions:
       'Outils IMAP/SMTP des boîtes mail de Nicolas. Les chemins de dossiers sont ceux du serveur, ' +
       'obtenus par lister_dossiers — ne les invente jamais. Tout déplacement passe par une file vérifiée ' +

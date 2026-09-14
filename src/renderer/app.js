@@ -8,7 +8,6 @@ const sendBtn = document.getElementById('btn-send')
 const statusLine = document.getElementById('status-line')
 const settingsPanel = document.getElementById('settings')
 const modelSelect = document.getElementById('model')
-const serveurInput = document.getElementById('serveur')
 const seuilSelect = document.getElementById('seuil')
 const listeComptes = document.getElementById('comptes')
 const formCompte = document.getElementById('form-compte')
@@ -20,12 +19,6 @@ let currentThinking = null
 let toolEls = new Map()
 let fileEls = new Map()
 let comptes = []
-/** Le modèle réellement servi par le serveur local, pour la barre de titre. */
-let modeleActif = ''
-let modeleVoulu = ''
-let serveurConnu = ''
-const noteIa = document.getElementById('note-ia')
-const NOTE_IA = noteIa.textContent
 const permsEnAttente = []
 /** Messages écrits pendant qu'il travaillait, pas encore repris par l'agent. */
 let enFile = []
@@ -125,12 +118,23 @@ const BUILTIN = {
   Bash: ['⌘', 'Terminal'],
   Read: ['📄', 'Lire un fichier'],
   Write: ['✏️', 'Écrire un fichier'],
+  Edit: ['✏️', 'Modifier un fichier'],
+  Glob: ['🔎', 'Chercher des fichiers'],
+  Grep: ['🔎', 'Chercher dans les fichiers'],
+  WebSearch: ['🌐', 'Recherche web'],
+  WebFetch: ['🌐', 'Lire une page web'],
+  TodoWrite: ['📋', 'Plan de travail'],
+  Task: ['🤖', 'Sous-agent'],
 }
 
 function describeTool(name) {
-  if (OUTILS_MAIL[name]) return OUTILS_MAIL[name]
+  if (name.startsWith('mcp__assistant-mail__')) {
+    const court = name.slice('mcp__assistant-mail__'.length)
+    return OUTILS_MAIL[court] || ['📬', court.replace(/_/g, ' ')]
+  }
   if (BUILTIN[name]) return BUILTIN[name]
-  return ['•', name.replace(/_/g, ' ')]
+  if (name.startsWith('mcp__')) return ['🔌', name.split('__').slice(1).join(' · ')]
+  return ['•', name]
 }
 
 function summarizeInput(name, input) {
@@ -451,12 +455,8 @@ function setStatus(text, kind) {
 
 function statusComptes() {
   if (!comptes.length) return setStatus('Aucune boîte configurée', 'err')
-  const boites = `${comptes.length} boîte${comptes.length > 1 ? 's' : ''} connectée${comptes.length > 1 ? 's' : ''}`
-  setStatus(modeleActif ? `${boites} · ${courtModele(modeleActif)}` : boites, 'ok')
+  setStatus(`${comptes.length} boîte${comptes.length > 1 ? 's' : ''} connectée${comptes.length > 1 ? 's' : ''}`, 'ok')
 }
-
-/** « qwen/qwen3.8-27b » tient mal dans la barre de titre : on garde l'essentiel. */
-const courtModele = (m) => String(m).split('/').pop()
 
 // -------------------------------------------------------------------- envoi
 
@@ -525,57 +525,7 @@ document.getElementById('btn-settings').addEventListener('click', () => settings
 document.getElementById('btn-workspace').addEventListener('click', () => api.openWorkspace())
 document.getElementById('btn-data').addEventListener('click', () => api.openData())
 
-modelSelect.addEventListener('change', () => api.setConfig({ ia: { model: modelSelect.value } }))
-
-/**
- * Le serveur d'IA. En changer redémarre la conversation : l'assistant va
- * vérifier que la nouvelle adresse répond avant de se dire prêt.
- */
-function appliquerServeur() {
-  const url = serveurInput.value.trim()
-  if (!url || url === serveurConnu) return
-  serveurConnu = url
-  api.setConfig({ ia: { baseUrl: url } })
-  chargerModeles(url)
-}
-serveurInput.addEventListener('change', appliquerServeur)
-serveurInput.addEventListener('blur', appliquerServeur)
-
-/** Demande au serveur local quels modèles il a chargés, puis remplit la liste. */
-async function chargerModeles(baseUrl, choisi) {
-  const r = await api.ia.modeles(baseUrl)
-  if (!r?.ok) {
-    modelSelect.replaceChildren(el('option', null, 'serveur injoignable'))
-    modelSelect.disabled = true
-    noteIa.textContent = r?.erreur || 'Serveur injoignable.'
-    noteIa.classList.add('err')
-    return
-  }
-  remplirModeles(r.modeles, choisi)
-}
-
-/** Les modèles réellement chargés. Ceux qui ne savent pas discuter sont écartés. */
-function remplirModeles(modeles, choisi) {
-  noteIa.textContent = NOTE_IA
-  noteIa.classList.remove('err')
-  modelSelect.disabled = false
-  const utiles = (modeles || []).filter((m) => !/embed|rerank|whisper|tts/i.test(m))
-  const liste = utiles.length ? utiles : (modeles || [])
-  if (!liste.length) {
-    modelSelect.replaceChildren(el('option', null, 'aucun modèle chargé'))
-    modelSelect.disabled = true
-    return
-  }
-  modelSelect.replaceChildren(...liste.map((m) => {
-    const o = el('option', null, m)
-    o.value = m
-    return o
-  }))
-  const voulu = choisi || modeleVoulu
-  modelSelect.value = voulu && liste.includes(voulu) ? voulu : liste[0]
-  if (modelSelect.value !== modeleVoulu) api.setConfig({ ia: { model: modelSelect.value } })
-  modeleVoulu = modelSelect.value
-}
+modelSelect.addEventListener('change', () => api.setConfig({ model: modelSelect.value }))
 seuilSelect.addEventListener('change', () => api.setConfig({ seuilConfirmation: Number(seuilSelect.value) }))
 
 document.addEventListener('click', (e) => {
@@ -711,12 +661,8 @@ document.getElementById('btn-detect').addEventListener('click', async () => {
 api.onEvent((evt) => {
   switch (evt.k) {
     case 'ready':
-      modeleActif = evt.model || ''
       if (evt.mail === 'connected') statusComptes()
       else setStatus(`Outils mail : ${evt.mail}`, 'err')
-      break
-    case 'modeles':
-      remplirModeles(evt.modeles, evt.actif)
       break
     case 'comptes':
       comptes = evt.comptes
@@ -761,11 +707,8 @@ api.onEvent((evt) => {
 // ---------------------------------------------------------------- démarrage
 
 const state = await api.init()
-serveurConnu = state.config.ia?.baseUrl || ''
-modeleVoulu = state.config.ia?.model || ''
-serveurInput.value = serveurConnu
+modelSelect.value = state.config.model
 seuilSelect.value = String(state.config.seuilConfirmation ?? 50)
-chargerModeles(serveurConnu, modeleVoulu)
 comptes = state.comptes || []
 renderComptes()
 statusComptes()

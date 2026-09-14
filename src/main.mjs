@@ -3,7 +3,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { setDataRoot, P } from './mail/paths.mjs'
-import { AgentSession, IA_DEFAUT } from './agent/session.mjs'
+import { AgentSession } from './agent/session.mjs'
 import { PROMPT_VERSION } from './agent/prompt.mjs'
 import { publicAccounts, saveAccount, deleteAccount } from './mail/accounts.mjs'
 import { guessCandidates, providerNote } from './mail/autodiscover.mjs'
@@ -11,8 +11,6 @@ import { testImapRaw, testSmtpRaw } from './mail/imap.mjs'
 import { onProgress, onDone } from './mail/evenements.mjs'
 import { listQueues } from './mail/file.mjs'
 import { arreterFile } from './mail/transfert.mjs'
-import { listerModeles } from './agent/llm.mjs'
-import { oublierConversation } from './agent/memoire.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -25,9 +23,7 @@ app.setName('Assistant Mail')
 app.setPath('userData', path.join(app.getPath('appData'), 'Assistant Mail'))
 
 const CONFIG_DEFAUT = {
-  // Le moteur : un serveur OpenAI-compatible sur le réseau local. Aucune
-  // requête ne part sur Internet, ni vers Claude, ni vers personne d'autre.
-  ia: { ...IA_DEFAUT },
+  model: 'claude-opus-5',
   // Nombre de messages au-delà duquel un traitement demande validation.
   // 0 = toujours demander, -1 = ne demander que pour l'irréversible.
   seuilConfirmation: 50,
@@ -52,10 +48,10 @@ function loadConfig() {
   configPath = path.join(app.getPath('userData'), 'reglages.json')
   try {
     const lu = JSON.parse(fs.readFileSync(configPath, 'utf8'))
-    // Les réglages d'avant le passage en local citaient un modèle Claude : on
-    // les laisse tomber au lieu de les envoyer à un serveur qui ne le connaît pas.
-    delete lu.model
-    config = { ...CONFIG_DEFAUT, ...lu, ia: { ...IA_DEFAUT, ...(lu.ia || {}) } }
+    // Réglages laissés par la parenthèse « moteur local » (3.x) : l'adresse d'un
+    // serveur du réseau local ne veut plus rien dire, le traitement revient à Claude.
+    delete lu.ia
+    config = { ...CONFIG_DEFAUT, ...lu }
   } catch {
     config = { ...CONFIG_DEFAUT }
   }
@@ -249,7 +245,7 @@ function wireIpc() {
   ipcMain.handle('app:init', () => {
     setImmediate(viderAttente)
     return {
-      config: { ia: config.ia, seuilConfirmation: config.seuilConfirmation },
+      config: { model: config.model, seuilConfirmation: config.seuilConfirmation },
       workspace,
       comptes: publicAccounts(),
       version: app.getVersion(),
@@ -261,25 +257,13 @@ function wireIpc() {
   ipcMain.on('chat:new', () => {
     refuserToutes('Nouvelle conversation.')
     config.lastSessionId = null
-    oublierConversation()
     saveConfig()
     session.start({})
   })
   ipcMain.on('chat:config', (_e, patch) => {
-    const serveurAvant = config.ia?.baseUrl
-    if (patch.ia) config.ia = { ...config.ia, ...patch.ia }
-    for (const [k, v] of Object.entries(patch)) if (k !== 'ia') config[k] = v
+    Object.assign(config, patch)
     saveConfig()
-    // Changer de serveur, c'est repartir de zéro : on vérifie qu'il répond.
-    if (patch.ia?.baseUrl && patch.ia.baseUrl !== serveurAvant) redemarrerSession()
-  })
-
-  ipcMain.handle('ia:modeles', async (_e, baseUrl) => {
-    try {
-      return { ok: true, modeles: await listerModeles({ baseUrl: baseUrl || config.ia.baseUrl, apiKey: config.ia.apiKey }) }
-    } catch (err) {
-      return { ok: false, erreur: String(err?.message || err) }
-    }
+    if (patch.model) session.setModel(patch.model)
   })
   ipcMain.on('perm:reply', (_e, { id, answer }) => resolvePermission(id, answer))
 
@@ -313,9 +297,8 @@ function wireIpc() {
 }
 
 function redemarrerSession() {
-  refuserToutes('La configuration a changé.')
+  refuserToutes('Les boîtes mail ont changé.')
   config.lastSessionId = null
-  oublierConversation()
   saveConfig()
   session?.start({})
   emit({ k: 'comptes', comptes: publicAccounts() })
@@ -340,14 +323,7 @@ function buildMenu() {
         {
           label: 'Nouvelle conversation',
           accelerator: 'CmdOrCtrl+N',
-          click: () => {
-            refuserToutes('Nouvelle conversation.')
-            config.lastSessionId = null
-            oublierConversation()
-            saveConfig()
-            session.start({})
-            emit({ k: 'cleared' })
-          },
+          click: () => { refuserToutes('Nouvelle conversation.'); session.start({}); emit({ k: 'cleared' }) },
         },
         // Pas d'accélérateur « Esc » : la touche est traitée dans l'interface, où
         // elle refuse d'abord une demande de validation en attente.

@@ -1,6 +1,6 @@
 // Incrémente ce numéro quand les règles changent : une conversation enregistrée
 // sous d'anciennes règles n'est alors plus reprise au démarrage.
-export const PROMPT_VERSION = 3
+export const PROMPT_VERSION = 4
 
 export function buildSystemPrompt({ workspace, timezone, comptes }) {
   const listeComptes = comptes?.length
@@ -81,15 +81,7 @@ Un désabonnement ne supprime pas l'historique : demande séparément s'il faut 
 - Lire le contenu des messages plus que nécessaire : pour trier, l'en-tête suffit presque toujours.
 
 # Ce que tu peux faire d'autre
-Tu tournes **entièrement sur le réseau local de Nicolas** : le modèle qui te fait parler est servi par sa propre machine, et l'application ne sort pas sur Internet. Tu n'as donc **pas d'outil de recherche web** — si une réponse demande une information en ligne, dis-le au lieu de l'inventer.
-
-Tu disposes de \`Bash\`, \`Read\` et \`Write\` sur la machine de Nicolas. Ton dossier de travail est ${workspace} : garde-y les inventaires, plans de rangement et comptes rendus que tu produis (un CSV des abonnements, un plan de migration…). Fuseau horaire : ${timezone}.
-
-# Comment tu appelles les outils
-- **Un outil à la fois**, et tu attends son résultat avant de décider de la suite. Deux appels lancés ensemble sur la même boîte se gênent.
-- Les arguments sont du **JSON strict** : pas d'objet écrit dans une chaîne, pas de champ inventé. Un champ facultatif que tu ne veux pas renseigner, tu l'omets — tu n'écris pas \`null\`.
-- Si un outil répond \`ERREUR\` ou \`REFUSÉ\`, **lis le message** : il dit quoi corriger. Tu corriges une fois. Si ça résiste, tu t'arrêtes et tu expliques à Nicolas, tu ne réessaies pas dix fois la même chose.
-- Tu n'annonces jamais un résultat que tu n'as pas vu passer dans un outil.
+Tu tournes sur la machine de Nicolas avec Bash, la lecture/écriture de fichiers et le web. Ton dossier de travail est ${workspace} : garde-y les inventaires, plans de rangement et comptes rendus que tu produis (un CSV des abonnements, un plan de migration…). Fuseau horaire : ${timezone}.
 
 # Au démarrage d'une conversation
 Si le premier message est vague (« salut », « on fait quoi ? »), regarde les boîtes configurées et l'état de la boîte de réception (\`lister_dossiers\`), et propose deux ou trois chantiers concrets en trois lignes.`

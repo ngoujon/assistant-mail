@@ -15,9 +15,6 @@ contextBridge.exposeInMainWorld('assistantMail', {
     save: (cfg) => ipcRenderer.invoke('comptes:save', cfg),
     remove: (id) => ipcRenderer.invoke('comptes:delete', id),
   },
-  ia: {
-    modeles: (baseUrl) => ipcRenderer.invoke('ia:modeles', baseUrl),
-  },
   traitements: () => ipcRenderer.invoke('traitements:list'),
   arreterTraitement: (id) => ipcRenderer.invoke('traitements:arreter', id),
 

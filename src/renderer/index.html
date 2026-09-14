@@ -37,14 +37,13 @@
 
     <section id="settings" class="settings hidden">
       <label class="row">
-        <span>Serveur d'IA</span>
-        <input type="text" id="serveur" class="serveur" placeholder="http://localhost:1234/v1" spellcheck="false" autocomplete="off" />
-      </label>
-      <label class="row">
         <span>Modèle</span>
-        <select id="model"></select>
+        <select id="model">
+          <option value="claude-opus-5">Opus 5 — le plus fin</option>
+          <option value="claude-sonnet-5">Sonnet 5 — plus rapide</option>
+          <option value="claude-haiku-4-5">Haiku 4.5 — express</option>
+        </select>
       </label>
-      <p class="note-inline" id="note-ia">Le modèle tourne sur ta machine ou sur ton réseau local : rien de ce que tu écris ici, ni de ce que contiennent tes boîtes, ne part sur Internet.</p>
       <label class="row">
         <span>Me demander au-delà de</span>
         <select id="seuil">

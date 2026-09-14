@@ -40,7 +40,7 @@ function recupererAnciennesDonnees() {
   const ancien = path.join(path.dirname(root), ANCIEN_APP_DIR)
   if (ancien === root || !fs.existsSync(ancien)) return
   if (fs.existsSync(path.join(root, 'comptes.json'))) return
-  for (const nom of ['comptes.json', 'cle-secrete', 'reglages.json', 'conversation.json', 'files', 'coffre', 'Espace de travail']) {
+  for (const nom of ['comptes.json', 'cle-secrete', 'reglages.json', 'files', 'coffre', 'Espace de travail']) {
     const de = path.join(ancien, nom)
     const vers = path.join(root, nom)
     if (!fs.existsSync(de)) continue

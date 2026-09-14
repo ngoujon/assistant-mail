@@ -9,13 +9,12 @@ const COMPTES = [
 ]
 
 contextBridge.exposeInMainWorld('assistantMail', {
-  init: async () => ({ config: { ia: { baseUrl: 'http://localhost:1234/v1', model: 'qwen/qwen3.8-27b' }, seuilConfirmation: 50 }, workspace: '/tmp', comptes: COMPTES, version: '3.0.0' }),
+  init: async () => ({ config: { model: 'claude-opus-5', seuilConfirmation: 50 }, workspace: '/tmp', comptes: COMPTES, version: '4.0.0' }),
   send: () => {},
   interrupt: () => {},
   newChat: () => {},
   setConfig: () => {},
   replyPermission: () => {},
-  ia: { modeles: async () => ({ ok: true, modeles: ['qwen/qwen3.8-27b'] }) },
   comptes: { list: async () => COMPTES, detect: async () => ({ ok: false }), test: async () => ({}), save: async () => ({ ok: true }), remove: async () => COMPTES },
   traitements: async () => [],
   arreterTraitement: async () => ({ arrete: true }),

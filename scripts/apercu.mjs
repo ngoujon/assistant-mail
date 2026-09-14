@@ -10,20 +10,20 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const out = process.argv[2] || path.join(root, 'apercu.png')
 
 const SCENARIO = [
-  { evt: { k: 'ready', sessionId: 'x', model: 'qwen/qwen3.8-27b', mail: 'connected' } },
+  { evt: { k: 'ready', sessionId: 'x', model: 'claude-opus-5', mail: 'connected' } },
   { user: 'Déplace le dossier Dupond de Perso vers Pro dans Archives' },
-  { evt: { k: 'tool-use', id: 't0', name: 'lister_dossiers', input: { compte: 'Perso' } } },
-  { evt: { k: 'tool-result', id: 't0', name: 'lister_dossiers', ok: true, preview: '42 dossiers' } },
-  { evt: { k: 'tool-use', id: 't1', name: 'apercu_dossier', input: { compte: 'Perso', dossier: 'Dupond' } } },
-  { evt: { k: 'tool-result', id: 't1', name: 'apercu_dossier', ok: true, preview: '4 dossiers, 342 messages' } },
+  { evt: { k: 'tool-use', id: 't0', name: 'mcp__assistant-mail__lister_dossiers', input: { compte: 'Perso' } } },
+  { evt: { k: 'tool-result', id: 't0', name: 'mcp__assistant-mail__lister_dossiers', ok: true, preview: '42 dossiers' } },
+  { evt: { k: 'tool-use', id: 't1', name: 'mcp__assistant-mail__apercu_dossier', input: { compte: 'Perso', dossier: 'Dupond' } } },
+  { evt: { k: 'tool-result', id: 't1', name: 'mcp__assistant-mail__apercu_dossier', ok: true, preview: '4 dossiers, 342 messages' } },
   { evt: { k: 'text-start' } },
   { evt: { k: 'text-delta', text: 'La branche **Dupond** de *Perso* contient **342 messages** répartis sur 4 dossiers :\n\n- `Dupond` — 12\n- `Dupond/2019` — 128\n- `Dupond/2020` — 154\n- `Dupond/Contrats` — 48\n\nJe recrée la même arborescence dans **Pro** sous `Archives/Dupond`. Chaque message est copié sur disque, déposé, **relu à destination**, puis retiré de Perso. Compte ~6 min.' } },
-  { evt: { k: 'result', isError: false } },
+  { evt: { k: 'result', isError: false, costUsd: 0.04, durationMs: 5200 } },
   {
     evt: {
       k: 'permission',
       id: 'p1',
-      toolName: 'deplacer_dossier',
+      toolName: 'mcp__assistant-mail__deplacer_dossier',
       allowAlways: false,
       title: 'Déplacer toute une branche ?',
       summary: {
@@ -113,16 +113,6 @@ app.whenReady().then(async () => {
   const image = await win.webContents.capturePage()
   fs.writeFileSync(out, image.toPNG())
 
-  // Les réglages du moteur : l'adresse du serveur local et les modèles qu'il sert.
-  await win.webContents.executeJavaScript("document.getElementById('btn-settings').click()")
-  await new Promise((r) => setTimeout(r, 250))
-  const serveur = await win.webContents.executeJavaScript("document.getElementById('serveur').value")
-  const modeles = await win.webContents.executeJavaScript("document.getElementById('model').options.length")
-  const outReglages = out.replace(/\.png$/, '-reglages.png')
-  fs.writeFileSync(outReglages, (await win.webContents.capturePage()).toPNG())
-  await win.webContents.executeJavaScript("document.getElementById('btn-settings').click()")
-  await new Promise((r) => setTimeout(r, 150))
-
   // Raccourci clavier : « esc » doit refuser la carte en attente.
   const avant = await win.webContents.executeJavaScript("document.querySelectorAll('.perm.answered').length")
   await win.webContents.executeJavaScript("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))")
@@ -137,12 +127,10 @@ app.whenReady().then(async () => {
   console.log('jauge de la file  :', largeurJauge)
   console.log('esc sur la carte  :', `${avant} -> ${apres} répondue(s)`)
   console.log('erreurs console   :', erreurs.length ? erreurs.join(' | ') : 'aucune')
-  console.log('serveur d\'IA      :', serveur || 'VIDE', '| modèles listés :', modeles)
-  console.log('capture           :', out, 'et', outReglages)
+  console.log('capture           :', out)
 
   const ok = rendus > 5 && comptes === 2 && largeurJauge === '100%' && apres === 1 && !erreurs.length
     && envoyePendant === 2 && marqueurRetire && boutonArret && arretRetire
-    && /^https?:\/\//.test(serveur) && modeles >= 1
   console.log(ok ? 'APERÇU OK' : 'APERÇU ÉCHEC')
   app.exit(ok ? 0 : 1)
 })
