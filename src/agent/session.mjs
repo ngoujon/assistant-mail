@@ -27,6 +27,8 @@ export const IA_DEFAUT = {
 
 /** Au-delà, on arrête le tour : le modèle tourne en rond. */
 const MAX_ETAPES = 40
+/** Serveur d'IA injoignable : on retente discrètement toutes les 15 secondes. */
+const DELAI_NOUVEL_ESSAI = 15000
 /** Un résultat d'outil rendu au modèle est coupé ici : sa fenêtre est étroite. */
 const MAX_RESULTAT = 8000
 /** Grossièrement, un jeton vaut trois caractères et demi de français. */
@@ -100,7 +102,8 @@ export class AgentSession {
    * On ne prétend pas être prêt avant d'avoir vu le serveur local répondre :
    * s'il est éteint, autant le dire tout de suite plutôt qu'au premier message.
    */
-  async verifierServeur(repris) {
+  async verifierServeur(repris, nouvelEssai = false) {
+    clearTimeout(this.essaiServeur)
     const { baseUrl, apiKey } = this.ia()
     try {
       const modeles = await listerModeles({ baseUrl, apiKey })
@@ -108,6 +111,7 @@ export class AgentSession {
       this.fenetre = await contexteCharge({ baseUrl, apiKey, model: modele })
       this.emit({ k: 'modeles', modeles, actif: modele })
       this.emit({ k: 'ready', sessionId: this.sessionId, model: modele || '(aucun modèle chargé)', mail: 'connected' })
+      if (nouvelEssai) this.emit({ k: 'note', text: `Serveur d'IA retrouvé sur ${baseUrl}.` })
       if (!modele) {
         this.emit({ k: 'error', message: `Aucun modèle chargé sur ${baseUrl}. Charges-en un dans ton serveur local.` })
       }
@@ -116,9 +120,24 @@ export class AgentSession {
       this.emit({ k: 'status', state: this.busy ? 'thinking' : 'idle' })
     } catch (err) {
       this.emit({ k: 'ready', sessionId: this.sessionId, model: this.ia().model || '—', mail: 'connected' })
-      this.emit({ k: 'error', message: String(err?.message || err) })
+      // Une panne qui dure ne se répète pas à chaque essai : on le dit une fois.
+      if (!nouvelEssai) this.emit({ k: 'error', message: String(err?.message || err) })
       this.emit({ k: 'status', state: 'idle' })
+      this.reessayerServeur(repris)
     }
+  }
+
+  /**
+   * Le serveur était injoignable : on retente en fond. Allumer le serveur ou
+   * accorder l'autorisation « Réseau local » suffit alors à repartir, sans
+   * avoir à relancer l'application.
+   */
+  reessayerServeur(repris) {
+    clearTimeout(this.essaiServeur)
+    this.essaiServeur = setTimeout(() => {
+      if (this.actif) this.verifierServeur(repris, true)
+    }, DELAI_NOUVEL_ESSAI)
+    this.essaiServeur.unref?.()
   }
 
   /** Ce que coûtent, en jetons, les consignes et la description des outils. */
@@ -156,6 +175,8 @@ export class AgentSession {
     this.actif = false
     this.busy = false
     this.enCours = false
+    clearTimeout(this.essaiServeur)
+    this.essaiServeur = null
     try { this.tourAbort?.abort() } catch {}
     this.tourAbort = null
   }

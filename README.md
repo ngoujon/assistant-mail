@@ -18,7 +18,16 @@ sur ta machine. Tu dialogues, il exécute.
 
 L'app attend un serveur OpenAI-compatible à une adresse que tu règles dans ⚙ (défaut :
 `http://localhost:1234/v1`). Elle interroge `/v1/models` pour remplir la liste des
-modèles, et n'utilise que ceux que ce serveur a réellement chargés.
+modèles, et n'utilise que ceux que ce serveur a réellement chargés. Si le serveur ne
+répond pas, elle le dit puis **retente toute seule toutes les 15 secondes** : allumer le
+serveur suffit à repartir, sans relancer l'app.
+
+> **macOS : l'autorisation « Réseau local ».** Quand le serveur tourne sur une autre
+> machine, macOS bloque la connexion tant que l'app n'est pas autorisée — et, vu de
+> l'app, ça ressemble trait pour trait à un serveur éteint. Réglages Système →
+> Confidentialité et sécurité → **Réseau local** → activer « Assistant Mail ». La
+> signature étant ad hoc, l'autorisation est à redonner **après chaque réinstallation**.
+> Un serveur en `127.0.0.1` n'est pas concerné.
 
 Deux exigences sur le modèle :
 

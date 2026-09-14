@@ -47,6 +47,30 @@ const tronquer = (s, n = 300) => {
   return t.length > n ? `${t.slice(0, n)}…` : t
 }
 
+/** Une adresse d'une autre machine du réseau local — ni loopback, ni Internet. */
+function surLeReseauLocal(url) {
+  let hote
+  try { hote = new URL(url).hostname } catch { return false }
+  if (hote === 'localhost' || hote === '127.0.0.1' || hote === '::1') return false
+  return /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hote) || hote.endsWith('.local')
+}
+
+/**
+ * Le serveur n'a pas répondu. Sur macOS, une app doit être autorisée à joindre
+ * le réseau local, et rien ne le dit : la connexion échoue comme si le serveur
+ * était éteint. On pose la question à la place de l'utilisateur.
+ */
+function injoignable(baseUrl, err) {
+  const adresse = base(baseUrl)
+  const cause = err?.message || err
+  const conseil = process.platform === 'darwin' && surLeReseauLocal(adresse)
+    ? 'Cette adresse est sur ton réseau local, et macOS demande une autorisation par application : ouvre ' +
+      'Réglages Système → Confidentialité et sécurité → Réseau local et active « Assistant Mail ». ' +
+      "Elle est à redonner après chaque réinstallation. Vérifie ensuite que le serveur tourne et qu'un modèle est chargé."
+    : "Vérifie que le serveur local tourne et qu'un modèle est chargé."
+  return new ErreurIA(`Serveur d'IA injoignable sur ${adresse} — ${cause}. ${conseil}`, { cause: err })
+}
+
 /** La liste des modèles chargés par le serveur. Sert aussi de test de vie. */
 export async function listerModeles({ baseUrl, apiKey, signal } = {}) {
   const url = `${base(baseUrl)}/models`
@@ -55,7 +79,7 @@ export async function listerModeles({ baseUrl, apiKey, signal } = {}) {
     r = await fetch(url, { headers: entetes(apiKey), signal })
   } catch (err) {
     if (err?.name === 'AbortError') throw err
-    throw new ErreurIA(`Serveur d'IA injoignable sur ${base(baseUrl)} — ${err?.message || err}`, { cause: err })
+    throw injoignable(baseUrl, err)
   }
   if (!r.ok) throw new ErreurIA(`Le serveur a répondu ${r.status} sur ${url}.`)
   const data = await r.json().catch(() => null)
@@ -88,11 +112,7 @@ export async function completer({
     r = await fetch(url, { method: 'POST', headers: entetes(apiKey), body: JSON.stringify(corps), signal })
   } catch (err) {
     if (err?.name === 'AbortError') throw err
-    throw new ErreurIA(
-      `Serveur d'IA injoignable sur ${base(baseUrl)} — ${err?.message || err}. ` +
-      'Vérifie que le serveur local tourne et que le modèle est chargé.',
-      { cause: err },
-    )
+    throw injoignable(baseUrl, err)
   }
   if (!r.ok || !r.body) {
     const detail = await r.text?.().catch(() => '') || ''
