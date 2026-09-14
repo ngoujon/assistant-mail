@@ -16,6 +16,14 @@ import { oublierConversation } from './agent/memoire.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+// Le dossier de données porte le nom de l'app, et Electron le fige très tôt —
+// bien avant `whenReady`. Le renommage en « Assistant Mail » (3.0) doit donc
+// être décidé ici, en haut du fichier : appelé plus tard, `app.setName` ne
+// déplace plus `userData`, et un bundle encore nommé « Assistant MailZen »
+// (installé avant le renommage) rouvrirait l'ancien dossier, sans les comptes.
+app.setName('Assistant Mail')
+app.setPath('userData', path.join(app.getPath('appData'), 'Assistant Mail'))
+
 const CONFIG_DEFAUT = {
   // Le moteur : un serveur OpenAI-compatible sur le réseau local. Aucune
   // requête ne part sur Internet, ni vers Claude, ni vers personne d'autre.
@@ -370,7 +378,6 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', () => { if (win) { win.show(); win.focus() } })
 
   app.whenReady().then(() => {
-    app.setName('Assistant Mail')
     nativeTheme.themeSource = 'system'
     setDataRoot(app.getPath('userData'))
     loadConfig()

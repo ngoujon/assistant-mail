@@ -31,6 +31,10 @@ export function setDataRoot(dir) {
  * a donc laissé les comptes, la clé de chiffrement, le coffre et les journaux dans
  * l'ancien dossier. On les ramène, une seule fois, et seulement si le nouveau
  * dossier n'a pas déjà de comptes — jamais au risque d'écraser quoi que ce soit.
+ *
+ * Uniquement depuis `setDataRoot`, c'est-à-dire quand l'application dit elle-même
+ * où sont ses données. Déclenchée à l'import, cette reprise déplaçait les comptes
+ * sous les pieds de l'app installée dès qu'un script du dépôt importait ce module.
  */
 function recupererAnciennesDonnees() {
   const ancien = path.join(path.dirname(root), ANCIEN_APP_DIR)
@@ -70,5 +74,4 @@ export function ensureDirs() {
   }
 }
 
-recupererAnciennesDonnees()
 ensureDirs()
