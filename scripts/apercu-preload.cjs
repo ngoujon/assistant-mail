@@ -4,7 +4,7 @@ const { contextBridge } = require('electron')
 let listener = () => {}
 
 const COMPTES = [
-  { id: 'c1', nom: 'Perso', email: 'nicolas@exemple.fr', imap: { host: 'imap.exemple.fr', port: 993, secure: true, user: 'nicolas@exemple.fr' }, smtp: { host: 'smtp.exemple.fr', port: 587, secure: false, user: 'nicolas@exemple.fr' }, etat: 'ok' },
+  { id: 'c1', nom: 'Perso', email: 'alex@exemple.fr', imap: { host: 'imap.exemple.fr', port: 993, secure: true, user: 'alex@exemple.fr' }, smtp: { host: 'smtp.exemple.fr', port: 587, secure: false, user: 'alex@exemple.fr' }, etat: 'ok' },
   { id: 'c2', nom: 'Pro', email: 'contact@societe.fr', imap: { host: 'ssl0.ovh.net', port: 993, secure: true, user: 'contact@societe.fr' }, smtp: { host: 'ssl0.ovh.net', port: 587, secure: false, user: 'contact@societe.fr' }, etat: 'ok' },
 ]
 

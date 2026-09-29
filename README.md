@@ -1,162 +1,126 @@
 # Assistant Mail
 
-Une petite app macOS qui ouvre un assistant conversationnel — un agent Claude Code
-déguisé en fenêtre — branché en **IMAP et SMTP** sur tes vraies boîtes mail.
+A small macOS app that opens a conversational assistant — a Claude Code agent dressed up as a window — connected over **IMAP and SMTP** to your real mailboxes.
 
-C'est « Claude Code lancé dans un dossier », mais le dossier c'est ton courrier :
-mêmes capacités (Bash, fichiers, web), plus une vingtaine d'outils qui parlent aux
-serveurs de messagerie. Tu dialogues, il exécute.
+Think of it as "Claude Code started in a folder", where the folder is your mail: the same capabilities (Bash, files, web) plus about twenty tools that talk to mail servers. You chat, it does the work.
 
-> Range le dossier Dupond par année · Combien j'ai d'abonnements newsletters ? ·
-> Supprime les alertes Indeed de ma boîte de réception · Déplace tout l'historique
-> de Perso vers Pro dans Archives/Dupond
+> *File the Dupond folder by year · How many newsletter subscriptions do I have? · Delete the job-alert emails from my inbox · Move the whole history from Personal to Work under Archives/Dupond*
 
-## Installation
+> The UI is in French.
+
+## Screenshots
+
+*The screenshots replay a scripted demo conversation (`scripts/apercu.mjs`) with fictional mailboxes — no real account or message.*
+
+| Light | Dark |
+| --- | --- |
+| ![Light theme](docs/screenshots/light.png) | ![Dark theme](docs/screenshots/dark.png) |
+
+## Install
 
 ```bash
 npm install
-npm run install-app      # construit l'app, l'installe dans /Applications, l'épingle au Dock
+npm run install-app      # builds the app, installs it in /Applications and pins it to the Dock
 ```
 
-C'est bien **Claude** qui fait le traitement, avec le compte déjà connecté sur cette
-machine : l'app s'appuie sur le Claude Agent SDK, qui reprend les identifiants de
-Claude Code (`claude /login` dans un terminal), ou à défaut `ANTHROPIC_API_KEY`. Le
-modèle se choisit dans les réglages ⚙ (Opus 5 par défaut).
+**Claude** does the processing with the account already signed in on the machine: the app uses the Claude Agent SDK, which reuses Claude Code's credentials (`claude /login` in a terminal), or `ANTHROPIC_API_KEY` as a fallback. The model is chosen in the ⚙ settings (Opus 5 by default).
 
-Un clic l'ouvre, la croix la masque (elle reste dans le Dock), `⌘Q` la quitte.
+One click opens it, the close button hides it (it stays in the Dock), `⌘Q` quits.
 
-| Raccourci | Effet |
+| Shortcut | Action |
 |---|---|
-| `↩` | envoyer |
-| `⇧↩` | nouvelle ligne |
-| `esc` | refuser la carte en attente, sinon interrompre l'agent |
-| `⌘.` | interrompre l'agent |
-| `⌘N` | nouvelle conversation |
+| `↩` | send |
+| `⇧↩` | new line |
+| `esc` | decline the pending card, otherwise interrupt the agent |
+| `⌘.` | interrupt the agent |
+| `⌘N` | new conversation |
 
-À l'ouverture, l'assistant **reprend la conversation précédente**. Le bouton `+` repart de zéro.
+On launch the assistant **resumes the previous conversation**; `+` starts over.
 
-## Ajouter une boîte
+## Adding a mailbox
 
-Réglages ⚙ → adresse + mot de passe → **Détecter et connecter**. L'app cherche les
-serveurs (fournisseurs connus, base Thunderbird, suppositions), **teste réellement la
-connexion**, puis enregistre. Les réglages manuels restent accessibles si la détection échoue.
+Settings ⚙ → address + password → **Détecter et connecter**. The app looks up the servers (known providers, Thunderbird autoconfig database, educated guesses), **actually tests the connection**, then saves it. Manual settings remain available.
 
-- Gmail, Yahoo et iCloud exigent un **mot de passe d'application**, pas le mot de passe du compte.
-- Les mots de passe sont chiffrés en AES-256-GCM dans le dossier de données, avec une clé
-  en `0600`. **Ils ne transitent jamais par la conversation** : l'assistant ne voit que des
-  noms de boîtes. S'il en manque une, il te le dit et s'arrête — il ne demande pas de mot de passe.
-- Retirer une boîte de l'app ne touche pas au serveur : aucun message n'est supprimé.
+- Gmail, Yahoo and iCloud require an **app password**, not the account password.
+- Passwords are encrypted with AES-256-GCM in the app data folder, with a `0600` key file. **They never go through the conversation**: the assistant only sees mailbox names and never asks for a password.
+- Removing a mailbox from the app doesn't touch the server.
 
-## Les garanties sur tes boîtes de prod
+## Guarantees on production mailboxes
 
-Tout déplacement passe par une **file d'attente journalisée**, traitée **message par message** —
-jamais en lot. Pour chaque message :
+Every move goes through a **journaled queue**, processed **one message at a time** — never in bulk. For each message:
 
-1. le message brut est écrit sur ton disque (le **coffre**) ;
-2. il est déposé à destination — `APPEND` entre deux boîtes, `MOVE` serveur dans la même ;
-3. il est **relu à destination**, par son UID puis par son `Message-ID` ;
-4. **seulement alors** il quitte la source, un UID à la fois ;
-5. le journal est réécrit sur disque.
+1. the raw message is written to disk (the **vault**);
+2. it is stored at the destination — `APPEND` across accounts, server-side `MOVE` within one;
+3. it is **re-read at the destination**, by UID then by `Message-ID`;
+4. **only then** is it removed from the source, one UID at a time;
+5. the journal is rewritten to disk.
 
-Ce qui en découle, et qui est vérifié par `npm test` (35 assertions contre un serveur IMAP simulé) :
+Consequences, checked by `npm test` (35 assertions against a simulated IMAP server):
 
-- un message qui n'arrive pas à destination **reste intact à la source**, et le traitement
-  continue sur le suivant ;
-- une coupure au message 412 sur 900 se **reprend** là où elle s'est arrêtée, sans doublon ;
-- « supprimer » veut dire **mettre à la corbeille**. L'effacement définitif exige un mot
-  explicite *et* une liste d'UID que l'assistant t'a montrée ;
-- sur un serveur sans `UID EXPUNGE`, si le dossier contient déjà des messages marqués
-  « supprimé », le traitement est **refusé** plutôt que de risquer de les purger ;
-- un dossier qui contient encore des messages ne se supprime pas sans que tu l'aies dit.
+- a message that doesn't reach its destination **stays intact at the source** and processing continues;
+- an interruption at message 412 of 900 **resumes** where it stopped, without duplicates;
+- "delete" means **move to Trash**; permanent deletion needs an explicit word *and* a list of UIDs the assistant showed you;
+- on a server without `UID EXPUNGE`, if the folder already contains messages flagged as deleted, processing is **refused** rather than risking purging them;
+- a non-empty folder is never deleted unless you said so.
 
-Journaux et copies brutes : menu **Conversation → Ouvrir le coffre et les journaux**.
+Logs and raw copies: **Conversation → Ouvrir le coffre et les journaux**.
 
-## Parler pendant qu'il travaille
+## Talking while it works
 
-Le champ de saisie n'est **jamais bloqué**. Un message écrit pendant qu'il travaille rejoint
-sa file d'entrée : le SDK le lui remet à la respiration suivante et il **refait son plan
-avec** — comme dans Claude Code. Le message s'affiche estompé, marqué *pris en compte à la
-prochaine étape*, jusqu'à ce qu'il reprenne la parole.
+The input is **never blocked**. A message typed while the agent works joins its input queue; the SDK hands it over at the next step and the agent **re-plans with it**. Long jobs hand control back after **15 seconds** and **continue in the background**, with a progress card and a *Stop* button (work done is kept, the queue can be resumed). The assistant announces when it's done.
 
-Tu peux donc lui demander deux choses coup sur coup, ou changer d'avis en cours de route.
-Le bouton reste un bouton d'envoi tant qu'il y a du texte ; il n'arrête l'agent que sur un
-champ vide (ou `esc`).
+## What needs confirmation
 
-Un traitement long ne monopolise plus la conversation : au bout de **15 secondes**, l'outil
-rend la main et le déplacement **continue en arrière-plan**. Une carte affiche sa
-progression, avec un bouton *Arrêter* (le travail déjà fait est conservé, la file reste
-reprenable). Quand il a fini, l'assistant l'annonce de lui-même.
+The decision is taken **after** the queue is prepared, so the card shows an exact count.
 
-## Ce qui demande une validation, et ce qui n'en demande pas
-
-Ce que tu demandes s'exécute. On ne t'interrompt que pour ce qui le mérite, et la décision
-est prise **après** la préparation de la file — la carte annonce donc un chiffre exact, pas
-une estimation sur critères.
-
-| Action | Validation |
+| Action | Confirmation |
 |---|---|
-| Lire, chercher, inventorier | jamais |
-| Créer / renommer un dossier, marquer des messages | jamais |
-| Déplacer, mettre à la corbeille | au-delà du seuil réglé (défaut : 50 messages) |
-| Effacer définitivement | **toujours** |
-| Supprimer un dossier avec son contenu | **toujours** |
-| Envoyer un e-mail, se désabonner par `mailto` | **toujours** (ça sort de la machine) |
+| Read, search, inventory | never |
+| Create / rename a folder, flag messages | never |
+| Move, move to Trash | above the configured threshold (default: 50 messages) |
+| Permanently delete | **always** |
+| Delete a folder with its content | **always** |
+| Send an email, unsubscribe via `mailto` | **always** (it leaves the machine) |
 
-Le seuil se règle dans ⚙ : *chaque action*, 10, 50, 200, ou *jamais*. Même sur *jamais*,
-les trois lignes en gras restent validées.
+The threshold is set in ⚙: *every action*, 10, 50, 200 or *never* — the three bold rows are always confirmed. Cards describe what will happen in plain words, have **no "Always allow" button**, and `↩` / `esc` accept / decline when the input is empty.
 
-Les cartes disent en clair ce qui va se passer — boîte, dossier, sélection, destination —
-et non le JSON de l'outil ; le détail technique reste à un clic. Elles **n'ont pas de bouton
-« Toujours »**. Au clavier : `↩` autorise, `esc` refuse — `↩` ne valide que si le champ de
-saisie est vide, sinon la phrase en cours part comme message.
+## Agent-side guards
 
-L'assistant, lui, a pour consigne de ne **jamais** redemander dans la conversation une
-confirmation que tu viens de donner. Il ne s'arrête que s'il voit un vrai problème : un
-critère qui ramène cent fois plus que prévu, une ambiguïté sur le dossier visé.
+The prompt (`src/agent/prompt.mjs`) tells the assistant to look before acting; `PreToolUse` hooks (`src/agent/gardes.mjs`) **enforce** it:
 
-## Les garde-fous côté agent
-
-Le prompt (`src/agent/prompt.mjs`) dit à l'assistant de regarder avant d'agir. Les hooks
-`PreToolUse` (`src/agent/gardes.mjs`) le lui **imposent**, parce que le prompt seul ne suffit pas :
-
-- un chemin de dossier qui n'a pas été vu dans `lister_dossiers` est **refusé** (fini les
-  dossiers fantômes créés sur une faute de casse) ;
-- déplacer une branche entière exige d'avoir appelé `apercu_dossier` d'abord — donc d'avoir
-  annoncé combien de dossiers et de messages vont bouger ;
-- une suppression sans aucun critère est refusée ; une suppression définitive sur critères
-  larges aussi ;
-- une destination à l'intérieur de la branche déplacée est refusée.
+- a folder path not seen in `lister_dossiers` is **refused** (no more ghost folders from a typo);
+- moving a whole branch requires calling `apercu_dossier` first, i.e. announcing how many folders and messages will move;
+- a deletion without criteria is refused, as is a permanent deletion on broad criteria;
+- a destination inside the branch being moved is refused.
 
 ## Architecture
 
 ```
-src/main.mjs            processus Electron : fenêtre, IPC, comptes, permissions
-src/preload.cjs         pont contextIsolation (aucun accès Node côté page)
-src/agent/session.mjs   session Claude Agent SDK : options, routage, permissions
-src/agent/prompt.mjs    personnalité et règles (PROMPT_VERSION à incrémenter si elles changent)
-src/agent/gardes.mjs    hooks PreToolUse : ce que le prompt ne peut pas garantir
-src/agent/outils.mjs    serveur MCP interne : les outils mail et leur politique de validation
-src/agent/resume.mjs    description des critères, cartes des outils système
-src/mail/transfert.mjs  le moteur : file, vérification, coffre, reprise
-src/mail/file.mjs       le journal d'un traitement, réécrit après chaque message
-src/mail/imap.mjs       connexions IMAP/SMTP, plafond par compte
-src/mail/messages.mjs   recherche, lecture, expéditeurs, abonnements (lecture seule)
-src/mail/dossiers.mjs   arborescence : lister, créer, renommer, supprimer
-src/mail/actions.mjs    drapeaux, désabonnement, envoi
-src/mail/accounts.mjs   les comptes, mots de passe chiffrés
-src/renderer/           l'interface (chat, cartes, réglages, progression)
-scripts/test-transfert.mjs  le contrat du moteur, contre un serveur simulé
-scripts/test-politique.mjs  le contrat des validations : pas de double confirmation
+src/main.mjs            Electron process: window, IPC, accounts, permissions
+src/preload.cjs         contextIsolation bridge (no Node access in the page)
+src/agent/session.mjs   Claude Agent SDK session: options, routing, permissions
+src/agent/prompt.mjs    personality and rules
+src/agent/gardes.mjs    PreToolUse hooks: what the prompt cannot guarantee
+src/agent/outils.mjs    internal MCP server: mail tools and their confirmation policy
+src/mail/transfert.mjs  the engine: queue, verification, vault, resume
+src/mail/file.mjs       per-job journal, rewritten after each message
+src/mail/imap.mjs       IMAP/SMTP connections, per-account cap
+src/mail/messages.mjs   search, read, senders, subscriptions (read-only)
+src/mail/dossiers.mjs   folder tree: list, create, rename, delete
+src/mail/actions.mjs    flags, unsubscribe, send
+src/mail/accounts.mjs   accounts, encrypted passwords
+src/renderer/           the UI (chat, cards, settings, progress)
+scripts/test-transfert.mjs  engine contract, against a simulated server
+scripts/test-politique.mjs  confirmation policy contract
 ```
 
-Données : `~/Library/Application Support/Assistant Mail/`
-(`comptes.json`, `cle-secrete`, `files/`, `coffre/`, `Espace de travail/`).
+Data: `~/Library/Application Support/Assistant Mail/` (`comptes.json`, `cle-secrete`, `files/`, `coffre/`, `Espace de travail/`).
 
-## Développement
+## Development
 
 ```bash
-npm start        # lance l'app sans l'installer
-npm test         # moteur de transfert (serveur simulé) + politique de validation
-npm run selftest # démarre une vraie session agent, sans rien modifier
-npm run build    # construit le .app dans build/
+npm start        # run the app without installing it
+npm test         # transfer engine (simulated server) + confirmation policy
+npm run selftest # start a real agent session without changing anything
+npm run build    # build the .app in build/
 ```
