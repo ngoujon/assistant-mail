@@ -11,7 +11,7 @@ npx @electron/packager . "Assistant Mail" \
   --no-asar \
   --arch=arm64 \
   --icon=assets/icon.icns \
-  --app-bundle-id=com.nicolasgoujon.assistant-mail \
+  --app-bundle-id=com.ngoujon.assistant-mail \
   --app-category-type=public.app-category.productivity \
   --app-version="$(node -p "require('./package.json').version")" \
   --prune=true \
