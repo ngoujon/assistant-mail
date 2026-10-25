@@ -28,6 +28,7 @@ const CONFIG_DEFAUT = {
   // 0 = toujours demander, -1 = ne demander que pour l'irréversible.
   seuilConfirmation: 50,
   bounds: { width: 500, height: 800 },
+  zoom: 0,
   lastSessionId: null,
   promptVersion: 0,
 }
@@ -110,6 +111,15 @@ function createWindow() {
   })
 
   win.webContents.on('did-start-loading', () => { rendererPret = false })
+  // Un changement de page remet le zoom à zéro : on le repose à chaque chargement.
+  win.webContents.on('did-finish-load', () => win.webContents.setZoomLevel(config.zoom || 0))
+  win.webContents.on('before-input-event', (e, input) => {
+    const crans = zoomDeTouche(input)
+    if (crans === null) return
+    e.preventDefault()
+    if (crans === 0) appliquerZoom(0)
+    else zoomer(crans)
+  })
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'))
   win.once('ready-to-show', () => win.show())
 
@@ -128,6 +138,38 @@ function createWindow() {
     shell.openExternal(url)
     return { action: 'deny' }
   })
+}
+
+// ------------------------------------------------------------------- zoom
+
+// Le zoom d'Electron est logarithmique : un cran vaut 20 % de plus. On borne
+// pour que l'interface reste utilisable, et on garde le réglage d'une fois sur l'autre.
+const ZOOM_MIN = -4
+const ZOOM_MAX = 6
+
+function appliquerZoom(crans) {
+  const n = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(crans)))
+  config.zoom = n
+  if (win && !win.isDestroyed()) win.webContents.setZoomLevel(n)
+  saveConfig()
+}
+
+function zoomer(delta) {
+  appliquerZoom((config.zoom || 0) + delta)
+}
+
+/**
+ * Les touches de zoom, lues avant la page : ⌘= comme ⌘+ (le « + » d'un clavier
+ * français demande Maj), ⌘−, ⌘0 et le pavé numérique. Un menu ne porte qu'un
+ * raccourci, d'où ce rattrapage. Renvoie +1, -1, 0 (taille réelle) ou null.
+ */
+function zoomDeTouche(input) {
+  if (input.type !== 'keyDown' || !(input.meta || input.control) || input.alt) return null
+  const { key, code } = input
+  if (key === '+' || key === '=' || code === 'NumpadAdd') return +1
+  if (key === '-' || key === '_' || code === 'NumpadSubtract') return -1
+  if (key === '0' || code === 'Digit0' || code === 'Numpad0') return 0
+  return null
 }
 
 // Le renderer n'écoute qu'après son chargement : on met les événements de
@@ -334,6 +376,16 @@ function buildMenu() {
       ],
     },
     { role: 'editMenu', label: 'Édition' },
+    {
+      label: 'Affichage',
+      submenu: [
+        // Les touches sont lues avant la page (voir zoomDeTouche) : ces raccourcis
+        // ne servent qu'à les afficher dans le menu.
+        { label: 'Agrandir', accelerator: 'CmdOrCtrl+Plus', click: () => zoomer(+1) },
+        { label: 'Réduire', accelerator: 'CmdOrCtrl+-', click: () => zoomer(-1) },
+        { label: 'Taille réelle', accelerator: 'CmdOrCtrl+0', click: () => appliquerZoom(0) },
+      ],
+    },
     {
       label: 'Fenêtre',
       submenu: [

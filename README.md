@@ -34,6 +34,8 @@ One click opens it, the close button hides it (it stays in the Dock), `⌘Q` qui
 | `esc` | decline the pending card, otherwise interrupt the agent |
 | `⌘.` | interrupt the agent |
 | `⌘N` | new conversation |
+| `⌘+` / `⌘-` | zoom in / out |
+| `⌘0` | actual size |
 
 On launch the assistant **resumes the previous conversation**; `+` starts over.
 
