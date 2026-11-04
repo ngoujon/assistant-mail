@@ -19,6 +19,7 @@ let currentThinking = null
 let toolEls = new Map()
 let fileEls = new Map()
 let comptes = []
+let recentes = []
 const permsEnAttente = []
 /** Messages écrits pendant qu'il travaillait, pas encore repris par l'agent. */
 let enFile = []
@@ -76,6 +77,18 @@ function showWelcome() {
   box.appendChild(el('p', null, comptes.length
     ? `Je suis branché sur ${comptes.length === 1 ? 'ta boîte' : `tes ${comptes.length} boîtes`} : ${comptes.map((c) => c.nom).join(', ')}. Dis-moi ce qu'il y a à trier.`
     : 'Aucune boîte mail configurée pour l\'instant. Ouvre les réglages ⚙ en haut à droite pour en ajouter une.'))
+  if (comptes.length && recentes.length) {
+    box.appendChild(el('div', 'titre-chips', 'Tes dernières demandes'))
+    const r = el('div', 'chips')
+    for (const s of recentes) {
+      const c = el('button', 'chip recente', s.length > 90 ? `${s.slice(0, 88)}…` : s)
+      c.title = s
+      c.addEventListener('click', () => submit(s))
+      r.appendChild(c)
+    }
+    box.appendChild(r)
+    box.appendChild(el('div', 'titre-chips', 'Idées'))
+  }
   const chips = el('div', 'chips')
   for (const s of comptes.length ? SUGGESTIONS_AVEC_COMPTE : SUGGESTIONS_SANS_COMPTE) {
     const c = el('button', 'chip', s)
@@ -84,6 +97,12 @@ function showWelcome() {
   }
   box.appendChild(chips)
   thread.appendChild(box)
+}
+
+/** Garde les dernières demandes à jour pendant la session : la prochaine conversation les propose. */
+function retenirDemande(text) {
+  const k = (t) => t.trim().toLowerCase()
+  recentes = [text, ...recentes.filter((t) => k(t) !== k(text))].slice(0, 6)
 }
 
 function dropWelcome() {
@@ -469,6 +488,7 @@ function submit(forced) {
   const text = (forced ?? input.value).trim()
   if (!text) return
   pushUserMessage(text, busy)
+  retenirDemande(text)
   api.send(text)
   input.value = ''
   autoGrow()
@@ -710,6 +730,7 @@ const state = await api.init()
 modelSelect.value = state.config.model
 seuilSelect.value = String(state.config.seuilConfirmation ?? 50)
 comptes = state.comptes || []
+recentes = state.recentes || []
 renderComptes()
 statusComptes()
 if (!comptes.length) settingsPanel.classList.remove('hidden')

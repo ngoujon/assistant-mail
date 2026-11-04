@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { setDataRoot, P } from './mail/paths.mjs'
 import { AgentSession } from './agent/session.mjs'
 import { PROMPT_VERSION } from './agent/prompt.mjs'
+import { demandesRecentes } from './agent/historique.mjs'
 import { publicAccounts, saveAccount, deleteAccount } from './mail/accounts.mjs'
 import { guessCandidates, providerNote } from './mail/autodiscover.mjs'
 import { testImapRaw, testSmtpRaw } from './mail/imap.mjs'
@@ -23,7 +24,7 @@ app.setName('Assistant Mail')
 app.setPath('userData', path.join(app.getPath('appData'), 'Assistant Mail'))
 
 const CONFIG_DEFAUT = {
-  model: 'claude-opus-5',
+  model: 'claude-opus-5-5',
   // Nombre de messages au-delà duquel un traitement demande validation.
   // 0 = toujours demander, -1 = ne demander que pour l'irréversible.
   seuilConfirmation: 50,
@@ -31,6 +32,12 @@ const CONFIG_DEFAUT = {
   zoom: 0,
   lastSessionId: null,
   promptVersion: 0,
+}
+
+const ANCIENS_MODELES = {
+  'claude-opus-5': 'claude-opus-5-5',
+  'claude-sonnet-5': 'claude-sonnet-5-5',
+  'claude-haiku-4-5': 'claude-haiku-5-5',
 }
 
 let config = { ...CONFIG_DEFAUT }
@@ -53,6 +60,8 @@ function loadConfig() {
     // serveur du réseau local ne veut plus rien dire, le traitement revient à Claude.
     delete lu.ia
     config = { ...CONFIG_DEFAUT, ...lu }
+    // Un modèle choisi dans une ancienne version passe à son successeur.
+    if (ANCIENS_MODELES[config.model]) config.model = ANCIENS_MODELES[config.model]
   } catch {
     config = { ...CONFIG_DEFAUT }
   }
@@ -290,6 +299,7 @@ function wireIpc() {
       config: { model: config.model, seuilConfirmation: config.seuilConfirmation },
       workspace,
       comptes: publicAccounts(),
+      recentes: demandesRecentes(workspace),
       version: app.getVersion(),
     }
   })

@@ -9,7 +9,7 @@ const COMPTES = [
 ]
 
 contextBridge.exposeInMainWorld('assistantMail', {
-  init: async () => ({ config: { model: 'claude-opus-5', seuilConfirmation: 50 }, workspace: '/tmp', comptes: COMPTES, version: '4.0.0' }),
+  init: async () => ({ config: { model: 'claude-opus-5-5', seuilConfirmation: 50 }, workspace: '/tmp', comptes: COMPTES, recentes: ['Range les factures de ma boîte de réception dans Factures', 'Supprime les mails marketing de ma boîte de réception'], version: '4.0.0' }),
   send: () => {},
   interrupt: () => {},
   newChat: () => {},

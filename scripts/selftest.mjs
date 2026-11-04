@@ -20,7 +20,7 @@ const session = new AgentSession({
     console.log('VALID. demandée pour', req.toolName, '->', req.title || '')
     return { behavior: 'deny', message: 'test automatique' }
   },
-  getConfig: () => ({ model: 'claude-sonnet-5', autoDoux: false }),
+  getConfig: () => ({ model: 'claude-sonnet-5-5', autoDoux: false }),
   workspace: P.workspace(),
 })
 

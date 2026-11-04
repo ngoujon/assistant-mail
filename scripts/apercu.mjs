@@ -10,7 +10,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const out = process.argv[2] || path.join(root, 'apercu.png')
 
 const SCENARIO = [
-  { evt: { k: 'ready', sessionId: 'x', model: 'claude-opus-5', mail: 'connected' } },
+  { evt: { k: 'ready', sessionId: 'x', model: 'claude-opus-5-5', mail: 'connected' } },
   { user: 'Déplace le dossier Dupond de Perso vers Pro dans Archives' },
   { evt: { k: 'tool-use', id: 't0', name: 'mcp__assistant-mail__lister_dossiers', input: { compte: 'Perso' } } },
   { evt: { k: 'tool-result', id: 't0', name: 'mcp__assistant-mail__lister_dossiers', ok: true, preview: '42 dossiers' } },
@@ -54,6 +54,15 @@ app.whenReady().then(async () => {
   })
   win.webContents.on('render-process-gone', (_e, d) => erreurs.push(`renderer perdu : ${d.reason}`))
   await win.loadFile(path.join(root, 'src', 'renderer', 'index.html'))
+
+  // ACCUEIL=1 : capture l'écran d'accueil (suggestions) au lieu de la conversation type.
+  if (process.env.ACCUEIL) {
+    await new Promise((r) => setTimeout(r, 400))
+    fs.writeFileSync(out, (await win.webContents.capturePage()).toPNG())
+    console.log(erreurs.length ? `ERREURS : ${erreurs.join(' | ')}` : `capture : ${out}`)
+    app.exit(erreurs.length ? 1 : 0)
+    return
+  }
 
   for (const etape of SCENARIO) {
     if (etape.user) {

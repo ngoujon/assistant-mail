@@ -13,10 +13,11 @@
     "build": "bash scripts/build-app.sh",
     "install-app": "bash scripts/install-app.sh",
     "test": "node scripts/test-transfert.mjs && node scripts/test-politique.mjs",
-    "selftest": "node scripts/selftest.mjs"
+    "selftest": "node scripts/selftest.mjs",
+    "import-apple-mail": "node scripts/importer-apple-mail.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.250",
+    "@anthropic-ai/claude-agent-sdk": "0.3.306",
     "imapflow": "^1.0.171",
     "mailparser": "^3.7.2",
     "nodemailer": "^6.9.16",
