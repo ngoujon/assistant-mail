@@ -436,13 +436,24 @@ main::-webkit-scrollbar-track { background: transparent; }
 .chip:hover { border-color: var(--accent); background: var(--accent-soft); }
 .chip:active { transform: scale(0.96); }
 .chip.recente {
+  display: inline-flex;
+  align-items: baseline;
   max-width: 100%;
   text-align: left;
+}
+.chip.recente .txt {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.chip.recente::before { content: '↻ '; color: var(--text-faint); }
+.chip.recente .fois { flex: none; }
+.chip.recente .fois {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+}
 .welcome .titre-chips {
   font-size: 11px;
   font-weight: 600;

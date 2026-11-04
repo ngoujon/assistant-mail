@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { setDataRoot, P } from './mail/paths.mjs'
 import { AgentSession } from './agent/session.mjs'
 import { PROMPT_VERSION } from './agent/prompt.mjs'
-import { demandesRecentes } from './agent/historique.mjs'
+import { demandesFrequentes } from './agent/historique.mjs'
 import { publicAccounts, saveAccount, deleteAccount } from './mail/accounts.mjs'
 import { guessCandidates, providerNote } from './mail/autodiscover.mjs'
 import { testImapRaw, testSmtpRaw } from './mail/imap.mjs'
@@ -299,7 +299,7 @@ function wireIpc() {
       config: { model: config.model, seuilConfirmation: config.seuilConfirmation },
       workspace,
       comptes: publicAccounts(),
-      recentes: demandesRecentes(workspace),
+      frequentes: demandesFrequentes(workspace),
       version: app.getVersion(),
     }
   })
