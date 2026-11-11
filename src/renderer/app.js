@@ -512,7 +512,7 @@ input.addEventListener('keydown', (e) => {
 })
 
 document.addEventListener('keydown', (e) => {
-  if (document.activeElement?.closest('#form-compte')) return
+  if (document.activeElement?.closest('#form-compte, .mdp')) return
   const pending = permsEnAttente[0]
   if (pending) {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !input.value.trim()) {
@@ -568,6 +568,9 @@ function renderComptes() {
     infos.appendChild(el('div', 'a', c.email))
     infos.appendChild(el('div', 'srv', `${c.imap.host}${c.smtp ? ` · ${c.smtp.host}` : ' · sans SMTP'}`))
     ligne.appendChild(infos)
+    const cle = el('button', 'sup cle', '🔑')
+    cle.title = `Changer le mot de passe de ${c.nom}`
+    ligne.appendChild(cle)
     const sup = el('button', 'sup', '×')
     sup.title = `Retirer ${c.nom}`
     sup.addEventListener('click', async () => {
@@ -578,7 +581,56 @@ function renderComptes() {
     })
     ligne.appendChild(sup)
     listeComptes.appendChild(ligne)
+    const mdp = formulaireMotDePasse(c)
+    cle.addEventListener('click', () => {
+      mdp.classList.toggle('hidden')
+      if (!mdp.classList.contains('hidden')) mdp.querySelector('input').focus()
+    })
+    listeComptes.appendChild(mdp)
   }
+}
+
+/** Petit formulaire replié sous une boîte : nouveau mot de passe, testé avant d'être gardé. */
+function formulaireMotDePasse(c) {
+  const bloc = el('div', 'mdp hidden')
+  const champMdp = document.createElement('input')
+  champMdp.type = 'password'
+  champMdp.placeholder = 'nouveau mot de passe'
+  champMdp.autocomplete = 'off'
+  const ok = el('button', 'primary', 'Enregistrer')
+  const etat = el('div', 'etat')
+  const valider = async () => {
+    if (!champMdp.value) { etat.className = 'etat err'; etat.textContent = 'Il faut un mot de passe.'; return }
+    ok.disabled = true
+    etat.className = 'etat'
+    etat.textContent = 'Vérification de la connexion…'
+    try {
+      const res = await api.comptes.changePassword(c.id, champMdp.value)
+      if (!res.ok) { etat.className = 'etat err'; etat.textContent = res.erreur; return }
+      comptes = res.comptes
+      renderComptes()
+      statusComptes()
+      dire(res.test.smtp?.ok === false
+        ? `Mot de passe de « ${c.nom} » changé. SMTP en échec (${res.test.smtp.erreur}).`
+        : `Mot de passe de « ${c.nom} » changé.`, res.test.smtp?.ok === false ? 'warn' : 'ok')
+    } catch (err) {
+      etat.className = 'etat err'
+      etat.textContent = String(err?.message || err)
+    } finally {
+      ok.disabled = false
+    }
+  }
+  ok.addEventListener('click', valider)
+  champMdp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); valider() }
+    if (e.key === 'Escape') { e.preventDefault(); bloc.classList.add('hidden') }
+  })
+  const ligne = el('div', 'duo')
+  ligne.appendChild(champMdp)
+  ligne.appendChild(ok)
+  bloc.appendChild(ligne)
+  bloc.appendChild(etat)
+  return bloc
 }
 
 function lireFormulaire() {

@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('assistantMail', {
     detect: (args) => ipcRenderer.invoke('comptes:detect', args),
     test: (cfg) => ipcRenderer.invoke('comptes:test', cfg),
     save: (cfg) => ipcRenderer.invoke('comptes:save', cfg),
+    changePassword: (id, pass) => ipcRenderer.invoke('comptes:password', { id, pass }),
     remove: (id) => ipcRenderer.invoke('comptes:delete', id),
   },
   traitements: () => ipcRenderer.invoke('traitements:list'),

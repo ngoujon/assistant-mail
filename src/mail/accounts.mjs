@@ -96,6 +96,22 @@ export function saveAccount(input) {
   return acc
 }
 
+/** Remplace le mot de passe (IMAP et SMTP) d'un compte existant, sans toucher au reste. */
+export function changeAccountPassword(id, pass) {
+  const list = read()
+  if (!list.some((a) => a.id === id)) throw new Error('Boîte mail introuvable.')
+  const chiffre = encrypt(pass)
+  write(list.map((a) => (a.id === id
+    ? {
+        ...a,
+        imap: { ...a.imap, pass: chiffre },
+        smtp: a.smtp ? { ...a.smtp, pass: chiffre } : a.smtp,
+        etat: 'ok',
+        derniereErreur: null,
+      }
+    : a)))
+}
+
 export function markAccount(id, patch) {
   const list = read()
   const next = list.map((a) => (a.id === id ? { ...a, ...patch } : a))

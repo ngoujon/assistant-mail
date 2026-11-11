@@ -6,7 +6,7 @@ import { setDataRoot, P } from './mail/paths.mjs'
 import { AgentSession } from './agent/session.mjs'
 import { PROMPT_VERSION } from './agent/prompt.mjs'
 import { demandesFrequentes } from './agent/historique.mjs'
-import { publicAccounts, saveAccount, deleteAccount } from './mail/accounts.mjs'
+import { publicAccounts, saveAccount, deleteAccount, listAccounts, changeAccountPassword } from './mail/accounts.mjs'
 import { guessCandidates, providerNote } from './mail/autodiscover.mjs'
 import { testImapRaw, testSmtpRaw } from './mail/imap.mjs'
 import { onProgress, onDone } from './mail/evenements.mjs'
@@ -329,6 +329,21 @@ function wireIpc() {
     // Les règles du prompt citent les boîtes : la session repart pour en tenir compte.
     redemarrerSession()
     return { ok: true, test, compte: publicAccounts().find((c) => c.id === acc.id) }
+  })
+  ipcMain.handle('comptes:password', async (_e, { id, pass }) => {
+    const acc = listAccounts().find((a) => a.id === id)
+    if (!acc) return { ok: false, erreur: 'Boîte mail introuvable.' }
+    if (!pass) return { ok: false, erreur: 'Il faut un mot de passe.' }
+    // On vérifie le nouveau mot de passe avant de remplacer l'ancien.
+    const test = await testerCompte({
+      imap: { ...acc.imap, pass },
+      smtp: acc.smtp?.host ? { ...acc.smtp, pass } : null,
+      certificatNonVerifie: acc.certificatNonVerifie,
+    })
+    if (!test.imap.ok) return { ok: false, erreur: `Connexion IMAP refusée : ${test.imap.erreur}` }
+    changeAccountPassword(id, pass)
+    redemarrerSession()
+    return { ok: true, test, comptes: publicAccounts() }
   })
   ipcMain.handle('comptes:delete', (_e, id) => {
     deleteAccount(id)

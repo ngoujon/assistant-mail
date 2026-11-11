@@ -559,13 +559,20 @@ kbd {
   line-height: 1; padding: 2px 4px; border-radius: 6px;
 }
 .compte .sup:hover { color: var(--danger); background: var(--code-bg); }
+.compte .cle { font-size: 12px; opacity: 0.6; }
+.compte .cle:hover { opacity: 1; }
+.mdp { display: flex; flex-direction: column; gap: 5px; padding: 2px 2px 6px 18px; }
+.mdp.hidden { display: none; }
+.mdp .duo { display: flex; gap: 6px; }
+.mdp .duo input { flex: 1 1 auto; min-width: 0; }
 .vide { font-size: 12px; color: var(--text-faint); }
 
 .form-compte { display: flex; flex-direction: column; gap: 7px; }
 .form-compte input[type="text"],
 .form-compte input[type="email"],
 .form-compte input[type="password"],
-.form-compte input[type="number"] {
+.form-compte input[type="number"],
+.mdp input[type="password"] {
   font: inherit;
   font-size: 12.5px;
   color: var(--text);
@@ -576,7 +583,7 @@ kbd {
   width: 100%;
   user-select: text;
 }
-.form-compte input:focus { outline: 0; border-color: var(--accent); }
+.form-compte input:focus, .mdp input:focus { outline: 0; border-color: var(--accent); }
 .form-compte .duo { display: flex; gap: 6px; }
 .form-compte .duo input { flex: 1 1 auto; min-width: 0; }
 .form-compte .duo input.port { flex: 0 0 74px; }
@@ -585,16 +592,17 @@ kbd {
 .form-compte .avance { display: none; flex-direction: column; gap: 7px; }
 .form-compte.ouvert .avance { display: flex; }
 .form-compte .actions-form { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.form-compte button {
+.form-compte button, .mdp button {
   font: inherit; font-size: 12px; font-weight: 560;
   border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
   border-radius: 9px; padding: 5px 11px;
 }
-.form-compte button.primary { background: linear-gradient(150deg, var(--accent-2), var(--accent)); color: #fff; border-color: transparent; }
-.form-compte button:disabled { opacity: 0.5; }
-.form-compte .etat { font-size: 11.5px; color: var(--text-dim); line-height: 1.45; }
+.form-compte button.primary, .mdp button.primary { background: linear-gradient(150deg, var(--accent-2), var(--accent)); color: #fff; border-color: transparent; }
+.form-compte button:disabled, .mdp button:disabled { opacity: 0.5; }
+.form-compte .etat, .mdp .etat { font-size: 11.5px; color: var(--text-dim); line-height: 1.45; }
+.mdp .etat:empty { display: none; }
 .form-compte .etat.ok { color: var(--ok); }
-.form-compte .etat.err { color: var(--danger); }
+.form-compte .etat.err, .mdp .etat.err { color: var(--danger); }
 .form-compte .etat.warn { color: var(--warn); }
 
 /* -------------------------------------------------------------- traitement */
