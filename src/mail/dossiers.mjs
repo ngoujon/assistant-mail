@@ -9,7 +9,11 @@ const USAGE_FR = {
 /** Liste les dossiers d'un compte, avec le nombre de messages si demandé. */
 export async function listFolders(acc, { compter = true } = {}) {
   return withImap(acc, async (client) => {
-    const list = await client.list()
+    // Avec LIST-STATUS, compter tous les dossiers tient en une seule commande ;
+    // sinon imapflow retombe sur un STATUS par dossier.
+    const list = compter
+      ? await client.list({ statusQuery: { messages: true, unseen: true } })
+      : await client.list()
     const out = []
     for (const box of list) {
       if (box.flags?.has?.('\\Noselect')) {
@@ -24,13 +28,13 @@ export async function listFolders(acc, { compter = true } = {}) {
         selectionnable: true,
       }
       if (compter) {
-        try {
-          const st = await client.status(box.path, { messages: true, unseen: true })
+        const st = box.status
+        if (st && !st.error) {
           item.messages = st.messages ?? 0
           item.non_lus = st.unseen ?? 0
-        } catch (err) {
+        } else {
           item.messages = null
-          item.erreur = err.message
+          item.erreur = st?.error?.message || 'état indisponible'
         }
       }
       out.push(item)
@@ -58,7 +62,7 @@ export async function createFolder(acc, chemin) {
 
 export async function renameFolder(acc, avant, apres) {
   return withImap(acc, async (client) => {
-    const list = await client.list()
+    const list = await client.list({ frais: true })
     if (!list.some((b) => b.path === avant)) throw new Error(`Le dossier « ${avant} » n'existe pas.`)
     if (list.some((b) => b.path === apres)) throw new Error(`« ${apres} » existe déjà : renomme-le d'abord ou choisis un autre nom.`)
     await client.mailboxRename(avant, apres)
@@ -75,7 +79,7 @@ export async function renameFolder(acc, avant, apres) {
  */
 export async function deleteFolder(acc, chemin, { vraimentVider = false } = {}) {
   return withImap(acc, async (client) => {
-    const list = await client.list()
+    const list = await client.list({ frais: true })
     const box = list.find((b) => b.path === chemin)
     if (!box) throw new Error(`Le dossier « ${chemin} » n'existe pas.`)
     const sep = box.delimiter || '/'

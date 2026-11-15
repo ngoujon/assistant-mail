@@ -8,7 +8,7 @@ import { PROMPT_VERSION } from './agent/prompt.mjs'
 import { demandesFrequentes } from './agent/historique.mjs'
 import { publicAccounts, saveAccount, deleteAccount, listAccounts, changeAccountPassword } from './mail/accounts.mjs'
 import { guessCandidates, providerNote } from './mail/autodiscover.mjs'
-import { testImapRaw, testSmtpRaw } from './mail/imap.mjs'
+import { testImapRaw, testSmtpRaw, oublierCompte, fermerConnexions } from './mail/imap.mjs'
 import { onProgress, onDone } from './mail/evenements.mjs'
 import { listQueues } from './mail/file.mjs'
 import { arreterFile } from './mail/transfert.mjs'
@@ -326,6 +326,7 @@ function wireIpc() {
     const test = await testerCompte(entree)
     if (!test.imap.ok) return { ok: false, test }
     const acc = saveAccount({ ...entree, etat: 'ok', derniereErreur: null })
+    oublierCompte(acc.id)
     // Les règles du prompt citent les boîtes : la session repart pour en tenir compte.
     redemarrerSession()
     return { ok: true, test, compte: publicAccounts().find((c) => c.id === acc.id) }
@@ -342,11 +343,13 @@ function wireIpc() {
     })
     if (!test.imap.ok) return { ok: false, erreur: `Connexion IMAP refusée : ${test.imap.erreur}` }
     changeAccountPassword(id, pass)
+    oublierCompte(id)
     redemarrerSession()
     return { ok: true, test, comptes: publicAccounts() }
   })
   ipcMain.handle('comptes:delete', (_e, id) => {
     deleteAccount(id)
+    oublierCompte(id)
     redemarrerSession()
     return publicAccounts()
   })
@@ -490,6 +493,7 @@ if (!app.requestSingleInstanceLock()) {
     quitting = true
     refuserToutes("Fermeture de l'application.")
     session?.stop()
+    fermerConnexions().catch(() => {})
   })
 
   app.on('window-all-closed', () => { /* l'app reste dans le Dock */ })

@@ -2,7 +2,7 @@
 // inventaire des abonnements. Tout ici ouvre les dossiers en LECTURE SEULE :
 // consulter un message ne doit jamais le marquer comme lu.
 import { simpleParser } from 'mailparser'
-import { withImap } from './imap.mjs'
+import { withImap, plage } from './imap.mjs'
 import { parseHeaders, header, decodeWords } from './entetes.mjs'
 
 /** Plafond de sécurité : au-delà on tronque et on le dit, plutôt que d'exploser. */
@@ -63,7 +63,7 @@ export async function searchMessages(acc, dossier, criteres = {}, { limite = 50 
     const retenus = uids.slice(0, Math.max(1, Math.min(limite, 500)))
     const messages = []
     if (retenus.length) {
-      for await (const msg of client.fetch(retenus.join(','), { uid: true, envelope: true, size: true, flags: true }, { uid: true })) {
+      for await (const msg of client.fetch(plage(retenus), { uid: true, envelope: true, size: true, flags: true }, { uid: true })) {
         messages.push(resumeMessage(msg))
       }
     }
@@ -108,7 +108,7 @@ export async function senders(acc, dossier, criteres = {}, { limite = 40 } = {})
     const analyses = uids.slice(0, PLAFOND_ANALYSE)
     const par = new Map()
     if (analyses.length) {
-      for await (const msg of client.fetch(analyses.join(','), { uid: true, envelope: true, size: true }, { uid: true })) {
+      for await (const msg of client.fetch(plage(analyses), { uid: true, envelope: true, size: true }, { uid: true })) {
         const exp = adresse(msg.envelope)
         if (!exp.adresse) continue
         const cle = exp.adresse
@@ -147,7 +147,7 @@ export async function newsletters(acc, dossier, criteres = {}, { limite = 100 } 
     const par = new Map()
     if (analyses.length) {
       const requete = { uid: true, envelope: true, size: true, headers: ['list-id', 'list-unsubscribe', 'list-unsubscribe-post', 'precedence'] }
-      for await (const msg of client.fetch(analyses.join(','), requete, { uid: true })) {
+      for await (const msg of client.fetch(plage(analyses), requete, { uid: true })) {
         const h = parseHeaders(msg.headers)
         const listId = header(h, 'list-id')
         const unsub = header(h, 'list-unsubscribe')

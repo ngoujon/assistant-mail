@@ -1,5 +1,5 @@
 // Actions ponctuelles : drapeaux, désabonnement, envoi SMTP.
-import { withImap, buildTransport } from './imap.mjs'
+import { withImap, buildTransport, plage } from './imap.mjs'
 import { parseHeaders, header } from './entetes.mjs'
 
 /** Marque des messages comme lus/non lus, suivis/non suivis. */
@@ -9,10 +9,10 @@ export async function markMessages(acc, dossier, uids, { lu, suivi }) {
   return withImap(acc, async (client) => {
     await client.mailboxOpen(dossier, { readOnly: false })
     const fait = []
-    if (lu === true) { await client.messageFlagsAdd(liste.join(','), ['\\Seen'], { uid: true }); fait.push('marqués lus') }
-    if (lu === false) { await client.messageFlagsRemove(liste.join(','), ['\\Seen'], { uid: true }); fait.push('marqués non lus') }
-    if (suivi === true) { await client.messageFlagsAdd(liste.join(','), ['\\Flagged'], { uid: true }); fait.push('suivis') }
-    if (suivi === false) { await client.messageFlagsRemove(liste.join(','), ['\\Flagged'], { uid: true }); fait.push('non suivis') }
+    if (lu === true) { await client.messageFlagsAdd(plage(liste), ['\\Seen'], { uid: true }); fait.push('marqués lus') }
+    if (lu === false) { await client.messageFlagsRemove(plage(liste), ['\\Seen'], { uid: true }); fait.push('marqués non lus') }
+    if (suivi === true) { await client.messageFlagsAdd(plage(liste), ['\\Flagged'], { uid: true }); fait.push('suivis') }
+    if (suivi === false) { await client.messageFlagsRemove(plage(liste), ['\\Flagged'], { uid: true }); fait.push('non suivis') }
     if (!fait.length) throw new Error('Précise ce qu\'il faut changer : lu ou suivi.')
     return { dossier, messages: liste.length, fait }
   })

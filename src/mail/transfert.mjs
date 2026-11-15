@@ -14,7 +14,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { P } from './paths.mjs'
-import { withImap, withImapPair, ensureMailbox, delimiterOf } from './imap.mjs'
+import { withImap, withImapPair, ensureMailbox, delimiterOf, plage, estLimitation } from './imap.mjs'
 import { resolveAccount } from './accounts.mjs'
 import { findSpecial } from './dossiers.mjs'
 import { buildQuery } from './messages.mjs'
@@ -25,6 +25,17 @@ import { emitProgress } from './evenements.mjs'
 export const PLAFOND_FILE = 20000
 
 class Interrompu extends Error {}
+
+const ATTENTES_LIMITATION = [30000, 60000, 120000]
+
+function attendre(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new Interrompu())
+    const t = setTimeout(() => { signal?.removeEventListener?.('abort', stop); resolve() }, ms)
+    const stop = () => { clearTimeout(t); reject(new Interrompu()) }
+    signal?.addEventListener?.('abort', stop, { once: true })
+  })
+}
 
 // ------------------------------------------------------------------- plans
 
@@ -40,7 +51,7 @@ export async function inventaire(client, dossier, criteres = {}) {
   uids = (uids || []).sort((a, b) => a - b)
   const items = []
   if (uids.length) {
-    for await (const msg of client.fetch(uids.join(','), { uid: true, envelope: true, size: true }, { uid: true })) {
+    for await (const msg of client.fetch(plage(uids), { uid: true, envelope: true, size: true }, { uid: true })) {
       items.push({
         uid: msg.uid,
         message_id: msg.envelope?.messageId || null,
@@ -144,7 +155,22 @@ export async function runTransfer(q, { source, cible, signal, pause = 40 } = {})
         if (signal?.aborted) throw new Interrompu()
         if (item.statut === 'termine' || item.statut === 'ignore') continue
         try {
-          await traiterMessage(q, paire, item, { source, cible, memeCompte, supprimeSource })
+          // Le serveur demande de ralentir (quota Gmail) : on patiente puis on
+          // reprend le même message, au lieu d'enchaîner des échecs en rafale.
+          // Une commande refusée pour limitation n'a rien exécuté : la reprise
+          // repart de l'état enregistré du message.
+          for (let essai = 0; ; essai++) {
+            try {
+              await traiterMessage(q, paire, item, { source, cible, memeCompte, supprimeSource })
+              break
+            } catch (err) {
+              if (!estLimitation(err) || essai >= ATTENTES_LIMITATION.length || !source.usable || !cible.usable) throw err
+              const ms = ATTENTES_LIMITATION[essai]
+              logQueue(q, 'info', `Le serveur demande de ralentir : pause de ${Math.round(ms / 1000)} s.`)
+              avancer(`pause de ${Math.round(ms / 1000)} s (limite du serveur)`)
+              await attendre(ms, signal)
+            }
+          }
         } catch (err) {
           if (err instanceof Interrompu) throw err
           item.statut = 'echec'
