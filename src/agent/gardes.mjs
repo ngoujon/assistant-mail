@@ -11,6 +11,8 @@ export class GardeMail {
     this.dossiersVus = new Map()
     /** compte -> Set de dossiers dont le contenu a été inventorié (apercu_dossier). */
     this.dossiersInspectes = new Map()
+    /** compte -> séparateur IMAP de la boîte (« / » ou « . »). */
+    this.separateurs = new Map()
   }
 
   #nom(ref) {
@@ -22,23 +24,20 @@ export class GardeMail {
     return this.dossiersVus.get(compte)
   }
 
-  /** Mémorise l'arborescence dès que l'assistant la lit. */
-  noteToolResult(toolName, brut) {
-    if (!brut || !toolName.startsWith(PREFIXE)) return
-    const nom = toolName.slice(PREFIXE.length)
-    if (nom !== 'lister_dossiers' && nom !== 'apercu_dossier') return
-    let data
-    try { data = JSON.parse(brut) } catch { return }
-    const compte = data?.compte
+  /**
+   * Mémorise l'arborescence au moment où le serveur MCP l'a lue sur IMAP.
+   * On ne passe pas par le résultat renvoyé au modèle : sur une grosse boîte,
+   * Claude Code peut le remplacer par une erreur de taille, et la boîte ne
+   * serait alors jamais considérée comme lue.
+   */
+  noterDossiers(compte, { chemins = [], separateur = null, inspecte = null } = {}) {
     if (!compte) return
     const set = this.#vus(compte)
-    for (const d of data.dossiers || []) {
-      const chemin = typeof d === 'string' ? d : d.chemin
-      if (chemin) set.add(chemin)
-    }
-    if (nom === 'apercu_dossier' && data.racine) {
+    for (const chemin of chemins) if (chemin) set.add(chemin)
+    if (separateur) this.separateurs.set(compte, separateur)
+    if (inspecte) {
       if (!this.dossiersInspectes.has(compte)) this.dossiersInspectes.set(compte, new Set())
-      this.dossiersInspectes.get(compte).add(data.racine)
+      this.dossiersInspectes.get(compte).add(inspecte)
     }
   }
 
@@ -54,7 +53,7 @@ export class GardeMail {
       return {
         ok: false,
         raison: `« ${chemin} » ne figure pas dans les dossiers de « ${nom} ». Les chemins IMAP sont sensibles à la casse et au séparateur : ` +
-          'relis `lister_dossiers` et reprends le chemin exact.',
+          'relis `lister_dossiers` (sans `racine`, ou avec la branche qui le contient) et reprends le chemin exact.',
       }
     }
     return { ok: true }
@@ -80,7 +79,8 @@ export class GardeMail {
         const source = this.#connu(i.compte_source, i.dossier)
         if (!source.ok) return source.raison
         const memeCompte = this.#nom(i.compte_source) === this.#nom(i.compte_cible)
-        if (memeCompte && (i.dossier_cible === i.dossier || String(i.dossier_cible || '').startsWith(`${i.dossier}/`))) {
+        const sep = this.separateurs.get(this.#nom(i.compte_source)) || '/'
+        if (memeCompte && (i.dossier_cible === i.dossier || String(i.dossier_cible || '').startsWith(`${i.dossier}${sep}`))) {
           return `Destination interdite : « ${i.dossier_cible} » est à l'intérieur de « ${i.dossier} ». Choisis une branche extérieure.`
         }
         if (!this.dossiersInspectes.get(this.#nom(i.compte_source))?.has(i.dossier)) {

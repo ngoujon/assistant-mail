@@ -17,7 +17,7 @@ export async function listFolders(acc, { compter = true } = {}) {
     const out = []
     for (const box of list) {
       if (box.flags?.has?.('\\Noselect')) {
-        out.push({ chemin: box.path, nom: box.name, usage: null, selectionnable: false })
+        out.push({ chemin: box.path, nom: box.name, separateur: box.delimiter, usage: null, selectionnable: false })
         continue
       }
       const item = {

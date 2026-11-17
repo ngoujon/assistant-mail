@@ -6,6 +6,13 @@ import os from 'node:os'
 import path from 'node:path'
 
 process.env.ASSISTANT_MAIL_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'assistant-mail-pol-'))
+// Deux boîtes factices pour la garde : une grosse (séparateur « . ») et une petite.
+fs.writeFileSync(path.join(process.env.ASSISTANT_MAIL_DATA_DIR, 'comptes.json'), JSON.stringify({
+  comptes: [
+    { id: 'grosse', nom: 'Grosse', email: 'grosse@exemple.fr', imap: { host: 'imap.exemple.fr', port: 993, secure: true, user: 'g' } },
+    { id: 'petite', nom: 'Petite', email: 'petite@exemple.fr', imap: { host: 'imap.exemple.fr', port: 993, secure: true, user: 'p' } },
+  ],
+}))
 
 const { AgentSession } = await import('../src/agent/session.mjs')
 
@@ -159,6 +166,51 @@ console.log('\n7. Une conversation rouverte se reprend, une vierge ne se reprend
   vierge.queue = { push: () => {} }
   vierge.send('bonjour')
   verifie('après un premier message, elle devient reprenable', vierge.aReprendre === 'neuf')
+}
+
+console.log("\n8. Une boîte à 330 dossiers se lit, puis s'écrit")
+{
+  const { GardeMail } = await import('../src/agent/gardes.mjs')
+  const { formaterDossiers } = await import('../src/agent/outils.mjs')
+  const M = 'mcp__assistant-mail__'
+  const source = 'INBOX.PRO.Qwebty.A TRAITER.QWEBTY'
+  const chemins = ['INBOX.PRO', source, 'INBOX.PRO.Qwebty.Hostinger', 'INBOX.PRO.Qwebty.A TRAITER.VIDE']
+  for (let i = 0; chemins.length < 330; i++) chemins.push(`INBOX.ARCHIVES.Clients.Client numero ${i}.Factures et devis`)
+
+  const g = new GardeMail()
+  const deplacer = { compte_source: 'Grosse', dossier_source: source, dossier_cible: 'INBOX.PRO.Qwebty.Hostinger', criteres: { uids: [1, 2, 3] } }
+  verifie('sans lister_dossiers, une écriture reste refusée',
+    /pas encore lu/.test(g.verifier(`${M}deplacer_messages`, deplacer) || ''))
+
+  const sortie = formaterDossiers('Grosse', chemins.map((c) => ({ chemin: c, selectionnable: true, messages: 12, non_lus: 0 })), { separateur: '.' })
+  verifie('la liste tient dans une réponse d\'outil', sortie.length < 25000, `${sortie.length} caractères`)
+  verifie('une ligne par dossier', sortie.split('\n').length === 330 + 2)
+
+  // Ce que fait lister_dossiers dès que la lecture IMAP réussit.
+  g.noterDossiers('Grosse', { chemins, separateur: '.' })
+  verifie('lister → deplacer_messages passe', g.verifier(`${M}deplacer_messages`, deplacer) === null)
+  verifie('→ supprimer_messages passe', g.verifier(`${M}supprimer_messages`, { compte: 'Grosse', dossier: source, criteres: { uids: [10, 11] } }) === null)
+  verifie('→ supprimer_dossier sur un dossier vide passe', g.verifier(`${M}supprimer_dossier`, { compte: 'Grosse', chemin: 'INBOX.PRO.Qwebty.A TRAITER.VIDE' }) === null)
+  verifie('un chemin inventé reste refusé', /ne figure pas/.test(g.verifier(`${M}supprimer_dossier`, { compte: 'Grosse', chemin: 'INBOX.Inventé' }) || ''))
+  verifie("l'autre boîte, jamais listée, reste refusée",
+    /pas encore lu/.test(g.verifier(`${M}supprimer_messages`, { compte: 'Petite', dossier: 'INBOX', criteres: { uids: [1] } }) || ''))
+  verifie('déplacer une branche dans elle-même est refusé avec le séparateur « . »',
+    /à l'intérieur/.test(g.verifier(`${M}deplacer_dossier`, { compte_source: 'Grosse', dossier: 'INBOX.PRO', compte_cible: 'Grosse', dossier_cible: 'INBOX.PRO.Qwebty' }) || ''))
+
+  // Une branche listée suffit pour écrire dans cette branche, pas ailleurs.
+  const b = new GardeMail()
+  b.noterDossiers('Petite', { chemins: ['Pro', 'Pro/Clients'], separateur: '/' })
+  verifie('lister une branche → écrire dedans passe', b.verifier(`${M}supprimer_messages`, { compte: 'Petite', dossier: 'Pro/Clients', criteres: { uids: [1] } }) === null)
+  verifie('… mais pas hors de la branche', b.verifier(`${M}supprimer_messages`, { compte: 'Petite', dossier: 'INBOX', criteres: { uids: [1] } }) !== null)
+  b.noterDossiers('Petite', { chemins: ['Pro', 'Pro/Clients'], separateur: '/', inspecte: 'Pro/Clients' })
+  verifie('apercu_dossier autorise une suppression avec contenu', b.verifier(`${M}supprimer_dossier`, { compte: 'Petite', chemin: 'Pro/Clients', vraiment_vider: true }) === null)
+
+  // Le résultat renvoyé au modèle ne compte plus : seule la lecture IMAP fait foi.
+  const { s } = session({})
+  s.route({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'x', name: `${M}lister_dossiers`, input: {} }] } })
+  s.route({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'x', is_error: true, content: 'Error: result exceeds maximum allowed tokens' }] } })
+  verifie('un résultat d\'outil ne marque rien : seule la lecture IMAP compte',
+    /pas encore lu/.test(s.garde.verifier(`${M}supprimer_messages`, { compte: 'Grosse', dossier: source, criteres: { uids: [1] } }) || ''))
 }
 
 console.log(`\n${reussis} vérification(s) réussie(s), ${echoues} échec(s).`)

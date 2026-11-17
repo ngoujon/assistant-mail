@@ -122,6 +122,8 @@ export class AgentSession {
           confirmer: (d) => this.confirmerAction(d),
           seuil: () => this.seuil(),
           suivre: (id) => this.onFile?.(id),
+          // `this.garde` est relu à chaque appel : start() en recrée une neuve.
+          dossiersLus: (compte, info) => this.garde.noterDossiers(compte, info),
         }),
       },
       // Aucune source de réglages externe : les règles d'autorisation de cette app
@@ -304,7 +306,6 @@ export class AgentSession {
           if (bloc.type !== 'tool_result') continue
           const nom = this.toolNames.get(bloc.tool_use_id) || ''
           const brut = textOf(bloc.content)
-          this.garde.noteToolResult(nom, brut)
           this.emit({ k: 'tool-result', id: bloc.tool_use_id, name: nom, ok: !bloc.is_error, preview: tronquer(brut) })
         }
         break

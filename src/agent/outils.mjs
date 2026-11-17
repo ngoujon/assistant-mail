@@ -57,6 +57,32 @@ const CRITERES = z.object({
 
 const pluriel = (n, un, plusieurs) => (n > 1 ? `${n} ${plusieurs}` : `${n} ${un}`)
 
+/**
+ * La liste des dossiers en texte compact, une ligne par dossier. En JSON indenté,
+ * 330 dossiers dépassaient la taille maximale d'une réponse d'outil.
+ */
+export function formaterDossiers(compte, dossiers, { separateur = '/', racine = null, avecCompte = true } = {}) {
+  const lignes = [
+    `${compte} — ${pluriel(dossiers.length, 'dossier', 'dossiers')}${racine ? ` sous « ${racine} »` : ''}, séparateur « ${separateur} »`,
+    avecCompte ? 'chemin | messages | non lus | usage' : 'chemin | usage',
+  ]
+  for (const d of dossiers) {
+    const cols = [d.chemin]
+    if (!d.selectionnable) {
+      cols.push('non sélectionnable')
+    } else {
+      if (avecCompte) {
+        if (d.messages === null || d.messages === undefined) cols.push('?', '?')
+        else cols.push(d.messages, d.non_lus ?? 0)
+      }
+      if (d.usage) cols.push(d.usage)
+      if (d.erreur) cols.push(`erreur : ${d.erreur}`)
+    }
+    lignes.push(cols.join(' | '))
+  }
+  return lignes.join('\n')
+}
+
 function rapportFile(id) {
   const q = loadQueue(id)
   const echecs = []
@@ -116,12 +142,26 @@ export function serveurMail(contexte = {}) {
       comptes: publicAccounts(),
     }))),
 
-    tool('lister_dossiers', "L'arborescence des dossiers d'une boîte, avec le nombre de messages et de non-lus.", {
+    tool('lister_dossiers',
+      "L'arborescence des dossiers d'une boîte, une ligne par dossier : chemin | messages | non lus | usage. " +
+      'Sur une très grosse boîte, `racine` limite la liste à une branche.', {
       compte: z.string().describe('nom, adresse ou identifiant de la boîte'),
       compter: z.boolean().optional().describe('false pour aller plus vite sur une boîte à 300 dossiers'),
-    }, sur(async ({ compte, compter }) => {
+      racine: z.string().optional().describe('chemin exact d\'une branche (ex : « INBOX.PRO ») : ne liste que ce dossier et ses sous-dossiers'),
+    }, sur(async ({ compte, compter, racine }) => {
       const acc = resolveAccount(compte)
-      return { compte: acc.nom, dossiers: await listFolders(acc, { compter: compter !== false }) }
+      const avecCompte = compter !== false
+      let dossiers = await listFolders(acc, { compter: avecCompte })
+      const separateur = dossiers.find((d) => d.separateur)?.separateur || '/'
+      if (racine) {
+        dossiers = dossiers.filter((d) => d.chemin === racine || d.chemin.startsWith(racine + separateur))
+        if (!dossiers.length) {
+          throw new Error(`Aucun dossier « ${racine} » dans « ${acc.nom} ». Appelle \`lister_dossiers\` sans \`racine\` pour voir les chemins exacts.`)
+        }
+      }
+      // La garde retient ce qui a été lu sur le serveur, quelle que soit la taille de la réponse.
+      contexte.dossiersLus?.(acc.nom, { chemins: dossiers.map((d) => d.chemin), separateur })
+      return formaterDossiers(acc.nom, dossiers, { separateur, racine, avecCompte })
     })),
 
     tool('chercher_messages', 'Cherche des messages dans un dossier et renvoie leurs UID, expéditeur, sujet, date et taille.', {
@@ -170,6 +210,7 @@ export function serveurMail(contexte = {}) {
           total += st.messages || 0
           detail.push({ chemin: d, messages: st.messages || 0, non_lus: st.unseen || 0 })
         }
+        contexte.dossiersLus?.(acc.nom, { chemins: dossiers, separateur, inspecte: dossier })
         return { compte: acc.nom, racine: dossier, separateur, dossiers: detail, messages_total: total }
       })
     })),
