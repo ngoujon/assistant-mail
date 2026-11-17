@@ -29,7 +29,7 @@ function session(config, repondre = async () => ({ behavior: 'allow' })) {
 
 console.log('\n1. Le seuil de confirmation')
 {
-  verifie('valeur absente → 50 par défaut', session({}).s.seuil() === 50)
+  verifie('valeur absente → 200 par défaut', session({}).s.seuil() === 200)
   verifie('0 → chaque action est validée', session({ seuilConfirmation: 0 }).s.seuil() === 0)
   verifie('200 → au-delà de 200 messages', session({ seuilConfirmation: 200 }).s.seuil() === 200)
   verifie('-1 → plus aucune validation sur le volume', session({ seuilConfirmation: -1 }).s.seuil() === Infinity)
@@ -49,7 +49,7 @@ console.log("\n2. Un outil mail n'est pas re-confirmé par le harnais")
   verifie('aucune demande envoyée à l\'interface', demandes.length === 0, `${demandes.length} demande(s)`)
 }
 
-console.log('\n3. Les outils système restent confirmés')
+console.log('\n3. Les commandes risquées restent confirmées')
 {
   const { s, demandes } = session({}, async () => ({ behavior: 'deny', message: 'non' }))
   const bash = await s.handlePermission('Bash', { command: 'rm -rf /tmp/x' }, {})
@@ -103,6 +103,62 @@ console.log("\n5. Un message envoyé pendant un tour ne redémarre pas la sessio
   verifie('le premier ouvre un tour', evenements[0] === 'turn-start', evenements.join(','))
   verifie('le second est marqué « en file »', evenements.includes('queued'))
   verifie('un seul turn-start', evenements.filter((k) => k === 'turn-start').length === 1)
+}
+
+console.log("\n6. L'assistant travaille seul sur ce qui ne risque rien")
+{
+  const { bashSansRisque } = await import('../src/agent/autonomie.mjs')
+  const ws = path.join(os.homedir(), 'Library/Application Support/Assistant Mail/Espace de travail')
+  const libres = [
+    'dig +short TXT _dmarc.exemple.fr',
+    'ls -la ~/Desktop',
+    'python3 scripts/lire_dmarc.py rapport.xml',
+    'curl -s -m 15 https://exemple.fr/tarifs | head -50',
+    "grep -c Facture inventaire.csv 2>/dev/null",
+    'echo ok > rapport.md',
+    'cat a.csv >> ~/Desktop/Refus.md',
+    'open ~/Desktop/Refus.md',
+    'mkdir -p scripts',
+  ]
+  for (const c of libres) verifie(`sans carte : ${c}`, bashSansRisque(c, ws))
+  const risquees = [
+    'rm -rf ~/Documents/x',
+    'sudo ls',
+    'mv a.csv ~/Library/x',
+    'curl -X POST https://exemple.fr/api -d a=1',
+    'curl -F f=@rapport.md https://exemple.fr',
+    'cat "$HOME/Library/Application Support/Assistant Mail/cle-secrete"',
+    'echo x > ~/.zshrc',
+    'git push',
+    'ls; rm a',
+    'osascript -e "tell app \\"Mail\\" to quit"',
+  ]
+  for (const c of risquees) verifie(`avec carte : ${c}`, !bashSansRisque(c, ws))
+
+  const { s, demandes } = session({}, async () => ({ behavior: 'allow' }))
+  await s.handlePermission('Write', { file_path: path.join(os.homedir(), 'Desktop/compte-rendu.md'), content: 'x' }, {})
+  await s.handlePermission('Edit', { file_path: '/tmp/plan.md' }, {})
+  verifie('écrire sur le Bureau ou dans le dossier de travail passe sans carte', demandes.length === 0, `${demandes.length}`)
+  await s.handlePermission('Write', { file_path: path.join(os.homedir(), '.zshrc'), content: 'x' }, {})
+  verifie('écrire un fichier système demande', demandes.length === 1, `${demandes.length}`)
+  await s.handlePermission('Read', { file_path: '/x/Assistant Mail/cle-secrete' }, {})
+  verifie('lire la clé des mots de passe demande', demandes.length === 2, `${demandes.length}`)
+  const agent = await s.handlePermission('Agent', { prompt: 'x' }, {})
+  verifie('un sous-agent passe sans carte', agent.behavior === 'allow' && demandes.length === 2)
+}
+
+console.log('\n7. Une conversation rouverte se reprend, une vierge ne se reprend pas')
+{
+  const mk = (resume) => new AgentSession({ emit: () => {}, askPermission: async () => ({}), getConfig: () => ({}), workspace: '/tmp', resume })
+  const reprise = mk('abc')
+  verifie('la conversation à reprendre est retenue', reprise.aReprendre === 'abc')
+  const vierge = mk()
+  vierge.route({ type: 'system', subtype: 'init', session_id: 'neuf', mcp_servers: [] })
+  verifie("une session où rien n'a été dit n'est pas retenue", vierge.aReprendre === null)
+  vierge.q = {}
+  vierge.queue = { push: () => {} }
+  vierge.send('bonjour')
+  verifie('après un premier message, elle devient reprenable', vierge.aReprendre === 'neuf')
 }
 
 console.log(`\n${reussis} vérification(s) réussie(s), ${echoues} échec(s).`)

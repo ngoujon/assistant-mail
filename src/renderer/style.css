@@ -177,7 +177,116 @@ main::-webkit-scrollbar { width: 8px; }
 main::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
 main::-webkit-scrollbar-track { background: transparent; }
 
-#thread { display: flex; flex-direction: column; gap: 10px; padding-bottom: 6px; }
+.thread { display: none; flex-direction: column; gap: 10px; padding-bottom: 6px; }
+.thread.active { display: flex; }
+
+/* ---------------------------------------------------------------- onglets */
+
+.onglets {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+  padding: 0 14px 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.onglets::-webkit-scrollbar { display: none; }
+
+.onglet {
+  flex: 0 1 auto;
+  min-width: 74px;
+  max-width: 180px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 9px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.onglet:hover { background: var(--surface-2); color: var(--text); }
+.onglet.actif { background: var(--surface); border-color: var(--border); color: var(--text); font-weight: 560; }
+.onglet .titre { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.onglet .pastille { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; background: var(--text-faint); opacity: 0.45; }
+.onglet.busy .pastille { background: var(--accent); opacity: 1; animation: pulse 1.4s ease-in-out infinite; }
+.onglet.nonlu .pastille { background: var(--ok); opacity: 1; }
+/* Une validation attend dans cet onglet : ça se voit même quand on est ailleurs. */
+.onglet.attente .pastille { background: var(--warn); opacity: 1; animation: pulse 0.9s ease-in-out infinite; }
+.onglet.attente:not(.actif) { color: var(--warn); }
+.onglet .fermer {
+  flex: 0 0 auto;
+  border: 0;
+  background: none;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  width: 17px;
+  height: 17px;
+  border-radius: 5px;
+  opacity: 0;
+}
+.onglet:hover .fermer, .onglet.actif .fermer { opacity: 1; }
+.onglet .fermer:hover { background: var(--code-bg); color: var(--text); }
+.onglet.confirmer .fermer { opacity: 1; color: #fff; background: var(--danger); }
+/* Une seule conversation : pas de croix, l'onglet sert de titre. */
+.onglets.seul .onglet .fermer { display: none; }
+
+/* -------------------------------------------------------------- historique */
+
+.historique {
+  margin: 0 14px 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 55vh;
+  animation: slide-down 0.18s ease;
+}
+.historique.hidden { display: none; }
+.historique .h-tete { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.historique h4 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+  font-weight: 620;
+}
+.historique input[type="search"] {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px 8px;
+  width: 150px;
+  user-select: text;
+}
+.historique input[type="search"]:focus { outline: 0; border-color: var(--accent); }
+.h-liste { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; min-height: 0; }
+.h-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 9px;
+}
+.h-item:hover { background: var(--accent-soft); }
+.h-item .h-titre { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.h-item .h-meta { flex: 0 0 auto; font-size: 11px; color: var(--text-faint); display: flex; gap: 6px; align-items: baseline; }
+.h-item .h-ouverte { color: var(--accent); font-weight: 600; }
 
 .msg { animation: rise 0.22s cubic-bezier(0.2, 0.8, 0.3, 1); max-width: 100%; }
 @keyframes rise { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }

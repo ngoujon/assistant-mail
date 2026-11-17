@@ -33,11 +33,18 @@ One click opens it, the close button hides it (it stays in the Dock), `⌘Q` qui
 | `⇧↩` | new line |
 | `esc` | decline the pending card, otherwise interrupt the agent |
 | `⌘.` | interrupt the agent |
-| `⌘N` | new conversation |
+| `⌘N` | new conversation (new tab) |
+| `⌘W` | close the conversation (`⇧⌘W` hides the window) |
+| `⌘1` … `⌘9`, `⌃⇥` / `⌃⇧⇥` | switch conversation |
+| `⌘Y` | previous conversations |
 | `⌘+` / `⌘-` | zoom in / out |
 | `⌘0` | actual size |
 
-On launch the assistant **resumes the previous conversation**; `+` starts over.
+## Several conversations at once
+
+Each tab is its **own agent session**: one can file a mailbox while you ask another for an inventory. A tab's dot pulses while it works, turns **orange** when a card waits for you there, and **green** when it has answered while you were elsewhere. Background jobs report back to the tab that started them.
+
+On launch the open tabs come back with their history; a tab only starts its agent when you look at it. The 🕘 button (`⌘Y`) lists **previous conversations** (searchable) — one click reopens it in a tab, history shown, context intact.
 
 ## Adding a mailbox
 
@@ -79,12 +86,14 @@ The decision is taken **after** the queue is prepared, so the card shows an exac
 |---|---|
 | Read, search, inventory | never |
 | Create / rename a folder, flag messages | never |
-| Move, move to Trash | above the configured threshold (default: 50 messages) |
+| Move, move to Trash | above the configured threshold (default: 200 messages) |
 | Permanently delete | **always** |
 | Delete a folder with its content | **always** |
 | Send an email, unsubscribe via `mailto` | **always** (it leaves the machine) |
 
 The threshold is set in ⚙: *every action*, 10, 50, 200 or *never* — the three bold rows are always confirmed. Cards describe what will happen in plain words, have **no "Always allow" button**, and `↩` / `esc` accept / decline when the input is empty.
+
+Outside the mailboxes the assistant also works on its own (`src/agent/autonomie.mjs`): ordinary shell commands (`dig`, `ls`, `grep`, a read-only `curl`, a script in its workspace…) and files written to its workspace, its memory, the Desktop, Documents or Downloads run **without a card**. A card still appears for anything that destroys, installs, touches the system or sends data out (`rm`, `mv`, `sudo`, `git`, `brew`, a `curl` POST/upload, `ssh`…), for writes elsewhere, and for anything touching the app's secrets (`cle-secrete`, `comptes.json`) or the Mac's.
 
 ## Agent-side guards
 
@@ -100,7 +109,9 @@ The prompt (`src/agent/prompt.mjs`) tells the assistant to look before acting; `
 ```
 src/main.mjs            Electron process: window, IPC, accounts, permissions
 src/preload.cjs         contextIsolation bridge (no Node access in the page)
-src/agent/session.mjs   Claude Agent SDK session: options, routing, permissions
+src/agent/session.mjs   Claude Agent SDK session (one per tab): options, routing, permissions
+src/agent/autonomie.mjs what runs without a card (shell commands, file writes)
+src/agent/conversations.mjs  previous conversations: list, replay
 src/agent/prompt.mjs    personality and rules
 src/agent/gardes.mjs    PreToolUse hooks: what the prompt cannot guarantee
 src/agent/outils.mjs    internal MCP server: mail tools and their confirmation policy

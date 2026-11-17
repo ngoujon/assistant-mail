@@ -9,10 +9,16 @@ const COMPTES = [
 ]
 
 contextBridge.exposeInMainWorld('assistantMail', {
-  init: async () => ({ config: { model: 'claude-opus-5-5', seuilConfirmation: 50 }, workspace: '/tmp', comptes: COMPTES, frequentes: [{ texte: 'Range les factures de ma boîte de réception dans Factures', fois: 12 }, { texte: 'Supprime les mails marketing de ma boîte de réception', fois: 5 }], version: '4.0.0' }),
+  init: async () => ({ config: { model: 'claude-opus-5-5', seuilConfirmation: 50 }, workspace: '/tmp', comptes: COMPTES, frequentes: [{ texte: 'Range les factures de ma boîte de réception dans Factures', fois: 12 }, { texte: 'Supprime les mails marketing de ma boîte de réception', fois: 5 }], version: '4.0.0', onglets: [{ id: 'o1', titre: '', sessionId: null }, { id: 'o2', titre: 'Inventaire des abonnements', sessionId: null }], actif: 'o1' }),
   send: () => {},
   interrupt: () => {},
-  newChat: () => {},
+  onglets: {
+    nouveau: async () => ({ id: `o${Date.now()}`, titre: '', sessionId: null }),
+    activer: () => {},
+    fermer: () => {},
+    fil: async () => ({ evenements: [], tronque: false }),
+  },
+  conversations: { liste: async () => [], ouvrir: async () => null },
   setConfig: () => {},
   replyPermission: () => {},
   comptes: { list: async () => COMPTES, detect: async () => ({ ok: false }), test: async () => ({}), save: async () => ({ ok: true }), remove: async () => COMPTES },

@@ -2,11 +2,21 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('assistantMail', {
   init: () => ipcRenderer.invoke('app:init'),
-  send: (text) => ipcRenderer.send('chat:send', text),
-  interrupt: () => ipcRenderer.send('chat:interrupt'),
-  newChat: () => ipcRenderer.send('chat:new'),
+  send: (tab, text) => ipcRenderer.send('chat:send', { tab, text }),
+  interrupt: (tab) => ipcRenderer.send('chat:interrupt', tab),
   setConfig: (patch) => ipcRenderer.send('chat:config', patch),
   replyPermission: (id, answer) => ipcRenderer.send('perm:reply', { id, answer }),
+
+  onglets: {
+    nouveau: () => ipcRenderer.invoke('onglets:nouveau'),
+    activer: (id) => ipcRenderer.send('onglets:activer', id),
+    fermer: (id) => ipcRenderer.send('onglets:fermer', id),
+    fil: (id) => ipcRenderer.invoke('onglets:fil', id),
+  },
+  conversations: {
+    liste: () => ipcRenderer.invoke('conversations:liste'),
+    ouvrir: (c) => ipcRenderer.invoke('conversations:ouvrir', c),
+  },
 
   comptes: {
     list: () => ipcRenderer.invoke('comptes:list'),

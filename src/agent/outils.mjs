@@ -79,6 +79,9 @@ function rapportFile(id) {
 export function serveurMail(contexte = {}) {
   const confirmer = contexte.confirmer || (async () => true)
   const seuil = contexte.seuil || (() => 50)
+  // Prévient la conversation qui lance un traitement : sa progression et sa fin
+  // reviendront dans cette conversation-là, pas dans l'onglet affiché à ce moment.
+  const suivre = (id) => { try { contexte.suivre?.(id) } catch {} }
 
   /** Demande une validation à Nicolas. Lève si elle est refusée. */
   async function valider(demande) {
@@ -91,6 +94,7 @@ export function serveurMail(contexte = {}) {
    * sinon on rend la main pour que la conversation reste vivante.
    */
   async function lancer(q) {
+    suivre(q.id)
     const course = lancerFile(q)
     const attente = new Promise((r) => setTimeout(() => r('encours'), DELAI_AVANT_DETACHEMENT))
     const issue = await Promise.race([course.then(() => 'fini'), attente])
@@ -344,6 +348,7 @@ export function serveurMail(contexte = {}) {
     tool('reprendre_traitement', "Reprend une file interrompue là où elle s'était arrêtée.", {
       id: z.string(),
     }, sur(async ({ id }) => {
+      suivre(id)
       const promesse = reprendreFile(id)
       const issue = await Promise.race([
         promesse.then(() => 'fini'),
@@ -414,7 +419,7 @@ export function serveurMail(contexte = {}) {
 
   return createSdkMcpServer({
     name: 'assistant-mail',
-    version: '4.0.0',
+    version: '4.1.0',
     instructions:
       'Outils IMAP/SMTP des boîtes mail de Nicolas. Les chemins de dossiers sont ceux du serveur, ' +
       'obtenus par lister_dossiers — ne les invente jamais. Tout déplacement passe par une file vérifiée ' +

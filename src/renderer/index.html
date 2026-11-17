@@ -21,6 +21,13 @@
         </div>
       </div>
       <div class="actions">
+        <button id="btn-historique" class="icon-btn" title="Conversations précédentes (⌘Y)" aria-label="Conversations précédentes">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3.5 12a8.5 8.5 0 1 0 2.5-6" />
+            <path d="M3.5 4.5V9H8" />
+            <path d="M12 7.5V12l3 2" />
+          </svg>
+        </button>
         <button id="btn-new" class="icon-btn" title="Nouvelle conversation (⌘N)" aria-label="Nouvelle conversation">
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <path d="M12 5v14M5 12h14" />
@@ -34,6 +41,16 @@
         </button>
       </div>
     </header>
+
+    <nav id="onglets" class="onglets" aria-label="Conversations ouvertes"></nav>
+
+    <section id="historique" class="historique hidden">
+      <div class="h-tete">
+        <h4>Conversations précédentes</h4>
+        <input type="search" id="h-filtre" placeholder="Chercher…" autocomplete="off" spellcheck="false" />
+      </div>
+      <div id="h-liste" class="h-liste"></div>
+    </section>
 
     <section id="settings" class="settings hidden">
       <label class="row">
@@ -89,9 +106,7 @@
       <button id="btn-data" class="link-btn">Ouvrir le coffre et les journaux…</button>
     </section>
 
-    <main id="scroll">
-      <div id="thread"></div>
-    </main>
+    <main id="scroll"></main>
 
     <footer>
       <div id="composer">

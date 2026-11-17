@@ -115,7 +115,7 @@ app.whenReady().then(async () => {
   const arretRetire = await win.webContents.executeJavaScript("!document.querySelector('.file .stop') && !!document.querySelector('.file.fini')")
 
   await new Promise((r) => setTimeout(r, 500))
-  const rendus = await win.webContents.executeJavaScript("document.querySelectorAll('#thread > *').length")
+  const rendus = await win.webContents.executeJavaScript("document.querySelectorAll('.thread.active > *').length")
   const comptes = await win.webContents.executeJavaScript("document.querySelectorAll('#comptes .compte').length")
   const largeurJauge = await win.webContents.executeJavaScript("document.querySelector('.file .barre i')?.style.width || ''")
 

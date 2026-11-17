@@ -7,6 +7,7 @@ import { buildSystemPrompt } from './prompt.mjs'
 import { GardeMail } from './gardes.mjs'
 import { resumerPermission } from './resume.mjs'
 import { serveurMail } from './outils.mjs'
+import { sansRisque, estSecret } from './autonomie.mjs'
 import { publicAccounts } from '../mail/accounts.mjs'
 
 const HOME = os.homedir()
@@ -39,7 +40,7 @@ const PREFIXE = 'mcp__assistant-mail__'
  * On ne les double donc pas d'une confirmation générique.
  */
 const BUILTIN_SUR = new Set([
-  'Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite', 'Task',
+  'Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite', 'Task', 'Agent',
   'ToolSearch', 'ListMcpResourcesTool', 'ReadMcpResourceTool', 'ReadMcpResourceDirTool',
   'Skill', 'AskUserQuestion', 'TaskOutput',
 ])
@@ -70,11 +71,20 @@ function fileEntree() {
 }
 
 export class AgentSession {
-  constructor({ emit, askPermission, getConfig, workspace }) {
+  /**
+   * @param {object} o
+   * @param {string} [o.resume] conversation à reprendre au premier démarrage
+   * @param {(fileId: string) => void} [o.onFile] un traitement vient d'être lancé depuis cette conversation
+   */
+  constructor({ emit, askPermission, getConfig, workspace, resume, onFile }) {
     this.emit = emit
     this.askPermission = askPermission
     this.getConfig = getConfig
     this.workspace = workspace
+    this.onFile = onFile
+    // La conversation à rouvrir quand la session démarre — rien n'est lancé tant
+    // qu'on n'en a pas besoin : un onglet resté en arrière-plan ne coûte rien.
+    this.aReprendre = resume || null
     this.q = null
     this.queue = null
     this.abort = null
@@ -107,7 +117,13 @@ export class AgentSession {
       },
       tools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite', 'Task'],
       strictMcpConfig: true,
-      mcpServers: { 'assistant-mail': serveurMail({ confirmer: (d) => this.confirmerAction(d), seuil: () => this.seuil() }) },
+      mcpServers: {
+        'assistant-mail': serveurMail({
+          confirmer: (d) => this.confirmerAction(d),
+          seuil: () => this.seuil(),
+          suivre: (id) => this.onFile?.(id),
+        }),
+      },
       // Aucune source de réglages externe : les règles d'autorisation de cette app
       // ne doivent pas pouvoir être élargies par un settings.json global.
       settingSources: [],
@@ -120,7 +136,7 @@ export class AgentSession {
       env: {
         ...process.env,
         PATH: [...new Set([...PATH_SUP, ...(process.env.PATH || '').split(':')])].filter(Boolean).join(':'),
-        CLAUDE_AGENT_SDK_CLIENT_APP: 'assistant-mail/4.0.0',
+        CLAUDE_AGENT_SDK_CLIENT_APP: 'assistant-mail/4.1.0',
       },
       ...(bin ? { pathToClaudeCodeExecutable: bin } : {}),
       stderr: (d) => { if (process.env.ASSISTANT_MAIL_DEBUG) process.stderr.write(`[claude] ${d}`) },
@@ -141,6 +157,17 @@ export class AgentSession {
     this.pump()
   }
 
+  /** Démarre la session si elle ne tourne pas, en reprenant sa conversation. */
+  ensure() {
+    if (!this.q) this.start({ resume: this.aReprendre || undefined })
+  }
+
+  /** Repart avec un prompt système à jour, sans perdre le fil de la conversation. */
+  restart() {
+    // Une session pas encore démarrée prendra le nouveau prompt à son démarrage.
+    if (this.q) this.start({ resume: this.aReprendre || undefined })
+  }
+
   async pump() {
     const courant = this.q
     try {
@@ -154,6 +181,7 @@ export class AgentSession {
       this.busy = false
       if (this.resumeId) {
         this.resumeId = null
+        this.aReprendre = null
         this.emit({ k: 'note', text: 'Conversation précédente introuvable, on repart à zéro.' })
         this.start({})
         return
@@ -177,7 +205,7 @@ export class AgentSession {
    * son plan avec. On ne bloque donc jamais la saisie.
    */
   send(text) {
-    if (!this.q) this.start({})
+    this.ensure()
     const enCours = this.busy
     this.busy = true
     this.emit({ k: enCours ? 'queued' : 'turn-start' })
@@ -198,6 +226,8 @@ export class AgentSession {
   }
 
   pousser(text) {
+    this.aParle = true
+    if (this.sessionId) this.aReprendre = this.sessionId
     this.queue.push({
       type: 'user',
       message: { role: 'user', content: [{ type: 'text', text }] },
@@ -225,6 +255,9 @@ export class AgentSession {
       case 'system':
         if (msg.subtype === 'init') {
           this.sessionId = msg.session_id
+          // Une session où personne n'a encore rien dit n'existe pas sur disque :
+          // on ne saurait pas la reprendre.
+          if (this.resumeId || this.aParle) this.aReprendre = msg.session_id
           const mail = (msg.mcp_servers || []).find((s) => s.name === 'assistant-mail')
           this.emit({ k: 'ready', sessionId: msg.session_id, model: msg.model, mail: mail?.status || 'absent' })
           if (this.resumeId) this.emit({ k: 'resumed' })
@@ -296,7 +329,7 @@ export class AgentSession {
   /** Seuil de messages au-delà duquel un traitement se valide. */
   seuil() {
     const v = this.getConfig()?.seuilConfirmation
-    if (v === null || v === undefined) return 50
+    if (v === null || v === undefined) return 200
     return v < 0 ? Infinity : Number(v)
   }
 
@@ -322,7 +355,11 @@ export class AgentSession {
     // Outils mail : la décision appartient à l'outil, qui la prend en connaissance
     // de cause. Redemander ici reviendrait à faire valider deux fois la même action.
     if (toolName.startsWith(PREFIXE)) return { behavior: 'allow', updatedInput: input }
-    if (BUILTIN_SUR.has(toolName)) return { behavior: 'allow', updatedInput: input }
+    // Lire les mots de passe chiffrés de l'app ou leur clé n'a jamais lieu d'être sans qu'il le sache.
+    const secret = toolName === 'Read' && estSecret(input?.file_path)
+    if (BUILTIN_SUR.has(toolName) && !secret) return { behavior: 'allow', updatedInput: input }
+    // Commandes ordinaires et fichiers écrits dans ses dossiers : il travaille seul.
+    if (sansRisque(toolName, input, this.workspace)) return { behavior: 'allow', updatedInput: input }
 
     const summary = resumerPermission(toolName, input)
     const reponse = await this.askPermission({
@@ -346,13 +383,13 @@ export class AgentSession {
   }
 }
 
-function textOf(contenu) {
+export function textOf(contenu) {
   if (typeof contenu === 'string') return contenu
   if (Array.isArray(contenu)) return contenu.filter((b) => b?.type === 'text').map((b) => b.text).join('\n')
   return ''
 }
 
-function tronquer(s, n = 700) {
+export function tronquer(s, n = 700) {
   if (!s) return ''
   const t = String(s).trim()
   return t.length > n ? `${t.slice(0, n)}…` : t

@@ -6,6 +6,7 @@ import { setDataRoot, P } from './mail/paths.mjs'
 import { AgentSession } from './agent/session.mjs'
 import { PROMPT_VERSION } from './agent/prompt.mjs'
 import { demandesFrequentes } from './agent/historique.mjs'
+import { listerConversations, relireConversation, titreDe } from './agent/conversations.mjs'
 import { publicAccounts, saveAccount, deleteAccount, listAccounts, changeAccountPassword } from './mail/accounts.mjs'
 import { guessCandidates, providerNote } from './mail/autodiscover.mjs'
 import { testImapRaw, testSmtpRaw, oublierCompte, fermerConnexions } from './mail/imap.mjs'
@@ -27,10 +28,14 @@ const CONFIG_DEFAUT = {
   model: 'claude-opus-5-5',
   // Nombre de messages au-delà duquel un traitement demande validation.
   // 0 = toujours demander, -1 = ne demander que pour l'irréversible.
-  seuilConfirmation: 50,
+  // 200 depuis la 4.1 : un déplacement passe par le coffre et se vérifie à
+  // destination, il n'y a pas de raison de l'arrêter à chaque dossier rangé.
+  seuilConfirmation: 200,
   bounds: { width: 500, height: 800 },
   zoom: 0,
-  lastSessionId: null,
+  // Les conversations ouvertes en onglets, rouvertes au lancement suivant.
+  onglets: [],
+  ongletActif: null,
   promptVersion: 0,
 }
 
@@ -44,9 +49,20 @@ let config = { ...CONFIG_DEFAUT }
 let configPath = ''
 let workspace = ''
 let win = null
-let session = null
 let quitting = false
 
+/**
+ * Une session agent par onglet : chaque conversation a son propre fil, sa
+ * propre mémoire, et peut travailler pendant qu'on écrit dans une autre.
+ * @type {Map<string, { id: string, titre: string, sessionId: string|null, session: AgentSession }>}
+ */
+const onglets = new Map()
+let ongletActif = null
+let seqOnglet = 0
+/** Le traitement de fond → l'onglet qui l'a lancé, pour y renvoyer sa progression. */
+const fileOnglet = new Map()
+
+/** @type {Map<string, { resolve: Function, tab: string|undefined }>} */
 const permissionsEnAttente = new Map()
 let seqPermission = 0
 
@@ -62,6 +78,16 @@ function loadConfig() {
     config = { ...CONFIG_DEFAUT, ...lu }
     // Un modèle choisi dans une ancienne version passe à son successeur.
     if (ANCIENS_MODELES[config.model]) config.model = ANCIENS_MODELES[config.model]
+    // Avant les onglets (4.x), une seule conversation était gardée.
+    if (!Array.isArray(config.onglets)) config.onglets = []
+    if (!config.onglets.length && lu.lastSessionId) config.onglets = [{ id: 'o1', sessionId: lu.lastSessionId, titre: '' }]
+    delete config.lastSessionId
+    // Nicolas a demandé un assistant plus autonome : l'ancien seuil par défaut
+    // (50) passe une fois à 200. Un réglage choisi à la main n'est pas touché.
+    if (!lu.autonomie) {
+      if (config.seuilConfirmation === 50) config.seuilConfirmation = 200
+      config.autonomie = 1
+    }
   } catch {
     config = { ...CONFIG_DEFAUT }
   }
@@ -207,7 +233,7 @@ function viderAttente() {
 function askPermission(req) {
   return new Promise((resolve) => {
     const id = `perm-${++seqPermission}`
-    permissionsEnAttente.set(id, resolve)
+    permissionsEnAttente.set(id, { resolve, tab: req.tab })
     const onAbort = () => {
       if (permissionsEnAttente.delete(id)) resolve({ behavior: 'deny', message: 'Annulé.' })
     }
@@ -215,6 +241,7 @@ function askPermission(req) {
 
     emit({
       k: 'permission',
+      tab: req.tab,
       id,
       toolName: req.toolName,
       title: req.title,
@@ -231,17 +258,84 @@ function askPermission(req) {
 }
 
 function resolvePermission(id, reponse) {
-  const resolve = permissionsEnAttente.get(id)
-  if (!resolve) return
+  const attente = permissionsEnAttente.get(id)
+  if (!attente) return
   permissionsEnAttente.delete(id)
-  resolve(reponse)
+  attente.resolve(reponse)
 }
 
-function refuserToutes(message) {
-  for (const [id, resolve] of permissionsEnAttente) {
+/** Refuse les demandes en attente — toutes, ou celles d'un seul onglet. */
+function refuserToutes(message, tab) {
+  for (const [id, attente] of permissionsEnAttente) {
+    if (tab && attente.tab !== tab) continue
     permissionsEnAttente.delete(id)
-    resolve({ behavior: 'deny', message })
+    attente.resolve({ behavior: 'deny', message })
   }
+}
+
+// ------------------------------------------------------------------ onglets
+
+function memoriserOnglets() {
+  config.onglets = [...onglets.values()].map(({ id, sessionId, titre }) => ({ id, sessionId, titre }))
+  config.ongletActif = ongletActif
+  saveConfig()
+}
+
+function creerOnglet({ id, sessionId = null, titre = '' } = {}) {
+  const tab = id || `o${Date.now().toString(36)}${(++seqOnglet).toString(36)}`
+  const o = { id: tab, titre, sessionId }
+  o.session = new AgentSession({
+    emit: (evt) => {
+      // On ne retient que les conversations qui existent sur disque, donc reprenables.
+      // (Une reprise ratée remet la session à zéro : l'onglet oublie l'ancienne.)
+      const sid = o.session.aReprendre || null
+      if (sid !== o.sessionId) {
+        o.sessionId = sid
+        memoriserOnglets()
+      }
+      emit({ ...evt, tab })
+    },
+    askPermission: (req) => askPermission({ ...req, tab }),
+    getConfig: () => config,
+    workspace,
+    resume: sessionId || undefined,
+    onFile: (fileId) => fileOnglet.set(fileId, tab),
+  })
+  onglets.set(tab, o)
+  memoriserOnglets()
+  return o
+}
+
+function decrireOnglet(o) {
+  return { id: o.id, titre: o.titre, sessionId: o.sessionId }
+}
+
+function activerOnglet(id) {
+  const o = onglets.get(id)
+  if (!o) return
+  ongletActif = id
+  o.session.ensure()
+  memoriserOnglets()
+}
+
+function fermerOnglet(id) {
+  const o = onglets.get(id)
+  if (!o) return
+  refuserToutes('Conversation fermée.', id)
+  o.session.stop()
+  onglets.delete(id)
+  if (ongletActif === id) ongletActif = [...onglets.keys()].at(-1) || null
+  memoriserOnglets()
+}
+
+/** Les onglets ouverts au dernier lancement, ou un onglet vierge. */
+function restaurerOnglets({ repartirAZero }) {
+  const gardes = repartirAZero ? [] : config.onglets.filter((o) => o?.id)
+  const actif = config.ongletActif
+  for (const o of gardes) creerOnglet(o)
+  if (!onglets.size) creerOnglet()
+  ongletActif = onglets.has(actif) ? actif : [...onglets.keys()].at(-1)
+  activerOnglet(ongletActif)
 }
 
 // ------------------------------------------------------------------ comptes
@@ -301,21 +395,51 @@ function wireIpc() {
       comptes: publicAccounts(),
       frequentes: demandesFrequentes(workspace),
       version: app.getVersion(),
+      onglets: [...onglets.values()].map(decrireOnglet),
+      actif: ongletActif,
     }
   })
 
-  ipcMain.on('chat:send', (_e, text) => { if (text?.trim()) session.send(text) })
-  ipcMain.on('chat:interrupt', () => session.interrupt())
-  ipcMain.on('chat:new', () => {
-    refuserToutes('Nouvelle conversation.')
-    config.lastSessionId = null
-    saveConfig()
-    session.start({})
+  ipcMain.on('chat:send', (_e, { tab, text } = {}) => {
+    const o = onglets.get(tab)
+    if (!o || !text?.trim()) return
+    if (!o.titre) {
+      o.titre = titreDe(text)
+      memoriserOnglets()
+    }
+    o.session.send(text)
   })
+  ipcMain.on('chat:interrupt', (_e, tab) => onglets.get(tab)?.session.interrupt())
   ipcMain.on('chat:config', (_e, patch) => {
     Object.assign(config, patch)
     saveConfig()
-    if (patch.model) session.setModel(patch.model)
+    if (patch.model) for (const o of onglets.values()) o.session.setModel(patch.model)
+  })
+
+  ipcMain.handle('onglets:nouveau', () => {
+    const o = creerOnglet()
+    activerOnglet(o.id)
+    return decrireOnglet(o)
+  })
+  ipcMain.on('onglets:activer', (_e, id) => activerOnglet(id))
+  ipcMain.on('onglets:fermer', (_e, id) => fermerOnglet(id))
+  ipcMain.handle('onglets:fil', async (_e, id) => {
+    const o = onglets.get(id)
+    if (!o?.sessionId) return { evenements: [], tronque: false }
+    return relireConversation(o.sessionId, workspace)
+  })
+
+  ipcMain.handle('conversations:liste', async () => {
+    const ouvertes = new Map([...onglets.values()].filter((o) => o.sessionId).map((o) => [o.sessionId, o.id]))
+    return (await listerConversations(workspace)).map((c) => ({ ...c, onglet: ouvertes.get(c.sessionId) || null }))
+  })
+  // Rouvre une conversation passée dans un nouvel onglet — ou montre celui qui l'affiche déjà.
+  ipcMain.handle('conversations:ouvrir', (_e, { sessionId, titre } = {}) => {
+    if (!sessionId) return null
+    const deja = [...onglets.values()].find((o) => o.sessionId === sessionId)
+    const o = deja || creerOnglet({ sessionId, titre: titre || '' })
+    activerOnglet(o.id)
+    return { ...decrireOnglet(o), deja: !!deja }
   })
   ipcMain.on('perm:reply', (_e, { id, answer }) => resolvePermission(id, answer))
 
@@ -366,12 +490,20 @@ function wireIpc() {
   })
 }
 
+/**
+ * Les règles du prompt citent les boîtes : chaque conversation repart pour en
+ * tenir compte, en gardant son fil.
+ */
 function redemarrerSession() {
   refuserToutes('Les boîtes mail ont changé.')
-  config.lastSessionId = null
-  saveConfig()
-  session?.start({})
+  for (const o of onglets.values()) o.session.restart()
   emit({ k: 'comptes', comptes: publicAccounts() })
+}
+
+/** Les commandes du menu agissent sur l'onglet affiché : c'est l'interface qui sait lequel. */
+function commande(action) {
+  emit({ k: 'menu', action })
+  if (win && !win.isVisible()) win.show()
 }
 
 function buildMenu() {
@@ -390,14 +522,16 @@ function buildMenu() {
     {
       label: 'Conversation',
       submenu: [
-        {
-          label: 'Nouvelle conversation',
-          accelerator: 'CmdOrCtrl+N',
-          click: () => { refuserToutes('Nouvelle conversation.'); session.start({}); emit({ k: 'cleared' }) },
-        },
+        { label: 'Nouvelle conversation', accelerator: 'CmdOrCtrl+N', click: () => commande('nouvel-onglet') },
+        { label: 'Fermer la conversation', accelerator: 'CmdOrCtrl+W', click: () => commande('fermer-onglet') },
+        { label: 'Conversations précédentes…', accelerator: 'CmdOrCtrl+Y', click: () => commande('historique') },
+        { type: 'separator' },
+        { label: 'Conversation suivante', accelerator: 'Ctrl+Tab', click: () => commande('onglet-suivant') },
+        { label: 'Conversation précédente', accelerator: 'Ctrl+Shift+Tab', click: () => commande('onglet-precedent') },
+        { type: 'separator' },
         // Pas d'accélérateur « Esc » : la touche est traitée dans l'interface, où
         // elle refuse d'abord une demande de validation en attente.
-        { label: 'Interrompre', accelerator: 'CmdOrCtrl+.', click: () => session.interrupt() },
+        { label: 'Interrompre', accelerator: 'CmdOrCtrl+.', click: () => commande('interrompre') },
         { type: 'separator' },
         { label: "Ouvrir l'espace de travail", click: () => shell.openPath(workspace) },
         { label: 'Ouvrir le coffre et les journaux', click: () => shell.openPath(path.dirname(P.queues())) },
@@ -418,7 +552,8 @@ function buildMenu() {
       label: 'Fenêtre',
       submenu: [
         { role: 'minimize', label: 'Réduire' },
-        { role: 'close', label: 'Fermer' },
+        // ⌘W ferme la conversation, comme un onglet de navigateur ; la fenêtre passe à ⇧⌘W.
+        { role: 'close', label: 'Fermer la fenêtre', accelerator: 'CmdOrCtrl+Shift+W' },
         { type: 'separator' },
         { role: 'toggleDevTools', label: 'Outils de développement' },
       ],
@@ -442,14 +577,18 @@ if (!app.requestSingleInstanceLock()) {
     buildMenu()
     wireIpc()
 
-    // La progression d'un déplacement remonte en direct dans la conversation.
-    onProgress((evt) => emit(evt))
+    // La progression d'un déplacement remonte en direct dans la conversation qui l'a lancé.
+    onProgress((evt) => emit({ ...evt, tab: onglets.has(fileOnglet.get(evt.id)) ? fileOnglet.get(evt.id) : ongletActif }))
 
-    // Un traitement parti en arrière-plan revient dans la conversation quand il a
+    // Un traitement parti en arrière-plan revient dans sa conversation quand il a
     // fini : l'assistant l'annonce lui-même, comme si Nicolas venait de lui demander.
+    // Onglet refermé entre-temps : c'est la conversation affichée qui prévient.
     onDone((rapport) => {
       const echecs = rapport.echecs_total || rapport.echecs || 0
-      session?.notifier(
+      const cible = onglets.get(fileOnglet.get(rapport.id)) || onglets.get(ongletActif)
+      if (!cible) return
+      cible.session.ensure()
+      cible.session.notifier(
         `[Traitement terminé, message automatique de l'application — Nicolas ne l'a pas écrit]\n` +
         `« ${rapport.intitule} » : ${rapport.faits} message(s) traité(s), ${echecs} échec(s).\n` +
         (echecs
@@ -458,31 +597,16 @@ if (!app.requestSingleInstanceLock()) {
       )
     })
 
-    session = new AgentSession({
-      emit: (evt) => {
-        if (evt.k === 'ready' && evt.sessionId) {
-          config.lastSessionId = evt.sessionId
-          saveConfig()
-        }
-        emit(evt)
-      },
-      askPermission,
-      getConfig: () => config,
-      workspace,
-    })
-
     process.on('unhandledRejection', (err) => {
-      emit({ k: 'error', message: `Agent indisponible : ${String(err?.message || err)}` })
-      emit({ k: 'status', state: 'idle' })
+      emit({ k: 'error', tab: ongletActif, message: `Agent indisponible : ${String(err?.message || err)}` })
+      emit({ k: 'status', tab: ongletActif, state: 'idle' })
     })
 
+    // Règles changées : on repart d'un onglet vierge. Les anciennes conversations
+    // restent dans l'historique, d'où on peut les rouvrir.
     const reglesChangees = config.promptVersion !== PROMPT_VERSION
-    if (reglesChangees) {
-      config.promptVersion = PROMPT_VERSION
-      config.lastSessionId = null
-      saveConfig()
-    }
-    session.start({ resume: reglesChangees ? undefined : config.lastSessionId || undefined })
+    if (reglesChangees) config.promptVersion = PROMPT_VERSION
+    restaurerOnglets({ repartirAZero: reglesChangees })
 
     app.on('activate', () => {
       if (win) { win.show(); win.focus() } else createWindow()
@@ -492,7 +616,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     quitting = true
     refuserToutes("Fermeture de l'application.")
-    session?.stop()
+    for (const o of onglets.values()) o.session.stop()
     fermerConnexions().catch(() => {})
   })
 

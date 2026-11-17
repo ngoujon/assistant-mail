@@ -1,7 +1,6 @@
 import { renderMarkdown } from './markdown.js'
 
 const api = window.assistantMail
-const thread = document.getElementById('thread')
 const scroll = document.getElementById('scroll')
 const input = document.getElementById('input')
 const sendBtn = document.getElementById('btn-send')
@@ -12,18 +11,39 @@ const seuilSelect = document.getElementById('seuil')
 const listeComptes = document.getElementById('comptes')
 const formCompte = document.getElementById('form-compte')
 const etatForm = document.getElementById('c-etat')
+const barreOnglets = document.getElementById('onglets')
+const panneauHistorique = document.getElementById('historique')
+const listeHistorique = document.getElementById('h-liste')
+const filtreHistorique = document.getElementById('h-filtre')
 
-let busy = false
-let currentText = null
-let currentThinking = null
-let toolEls = new Map()
-let fileEls = new Map()
 let comptes = []
 /** Les demandes que Nicolas fait le plus souvent : [{ texte, fois }]. */
 let frequentes = []
-const permsEnAttente = []
-/** Messages écrits pendant qu'il travaillait, pas encore repris par l'agent. */
-let enFile = []
+
+/**
+ * Une conversation ouverte. Chacune a son fil, son état et sa session agent
+ * côté processus principal : elles avancent en parallèle.
+ * @typedef {object} Onglet
+ * @property {string} id
+ * @property {string} titre
+ * @property {string|null} sessionId
+ * @property {HTMLElement} thread
+ * @property {HTMLElement} tab
+ * @property {boolean} busy
+ * @property {{ el: HTMLElement, raw: string }|null} currentText
+ * @property {{ el: HTMLElement, raw: string }|null} currentThinking
+ * @property {Map<string, HTMLElement>} toolEls
+ * @property {Map<string, object>} fileEls
+ * @property {object[]} perms demandes de validation en attente
+ * @property {HTMLElement[]} enFile messages écrits pendant qu'il travaillait
+ * @property {object[]|null} tampon événements reçus pendant le chargement du fil
+ */
+/** @type {Map<string, Onglet>} */
+const onglets = new Map()
+/** @type {Onglet|null} */
+let actif = null
+/** Événements arrivés pour un onglet que l'interface ne connaît pas encore. */
+const orphelins = new Map()
 
 // ------------------------------------------------------------------ outils
 
@@ -34,30 +54,24 @@ const el = (tag, cls, text) => {
   return n
 }
 
+const titreDe = (t, n = 70) => {
+  const s = String(t || '').replace(/\s+/g, ' ').trim()
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s
+}
+
 const nearBottom = () => scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 90
-let stick = true
-scroll.addEventListener('scroll', () => { stick = nearBottom() })
+scroll.addEventListener('scroll', () => { if (actif) actif.stick = nearBottom() })
 
-function scrollDown(force) {
-  if (force) stick = true
-  if (stick) scroll.scrollTop = scroll.scrollHeight
+function scrollDown(t, force) {
+  if (t !== actif) return
+  if (force) t.stick = true
+  if (t.stick) scroll.scrollTop = scroll.scrollHeight
 }
 
-function add(node) {
-  thread.appendChild(node)
-  scrollDown()
+function add(t, node) {
+  t.thread.appendChild(node)
+  scrollDown(t)
   return node
-}
-
-function clearThread() {
-  permsEnAttente.length = 0
-  enFile = []
-  thread.replaceChildren()
-  currentText = null
-  currentThinking = null
-  toolEls = new Map()
-  fileEls = new Map()
-  showWelcome()
 }
 
 // ------------------------------------------------------------------ accueil
@@ -70,7 +84,7 @@ const SUGGESTIONS_AVEC_COMPTE = [
 ]
 const SUGGESTIONS_SANS_COMPTE = ['Comment ajouter une boîte mail ?']
 
-function showWelcome() {
+function showWelcome(t) {
   const box = el('div', 'welcome')
   const h = new Date().getHours()
   const salut = h < 5 ? 'Bonne nuit' : h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir'
@@ -99,10 +113,10 @@ function showWelcome() {
     chips.appendChild(c)
   }
   box.appendChild(chips)
-  thread.appendChild(box)
+  t.thread.appendChild(box)
 }
-function dropWelcome() {
-  thread.querySelector('.welcome')?.remove()
+function dropWelcome(t) {
+  t.thread.querySelector('.welcome')?.remove()
 }
 
 // ---------------------------------------------------------- noms des outils
@@ -208,84 +222,83 @@ function humanizeInput(value, depth = 0, lines = []) {
 
 // -------------------------------------------------------------------- rendu
 
-function pushUserMessage(text, enAttente) {
-  dropWelcome()
+function pushUserMessage(t, text, enAttente) {
+  dropWelcome(t)
   const node = el('div', `msg user${enAttente ? ' enfile' : ''}`, text)
   if (enAttente) {
     node.appendChild(el('span', 'attente', 'pris en compte à la prochaine étape'))
-    enFile.push(node)
+    t.enFile.push(node)
   }
-  add(node)
-  scrollDown(true)
+  add(t, node)
+  scrollDown(t, true)
 }
 
 /**
  * L'agent vient de reprendre la parole ou d'appeler un outil : le SDK lui a donc
  * remis les messages en attente à cette respiration-là. On retire le marqueur.
  */
-function videEnFile() {
-  for (const n of enFile.splice(0, enFile.length)) {
+function videEnFile(t) {
+  for (const n of t.enFile.splice(0, t.enFile.length)) {
     n.classList.remove('enfile')
     n.querySelector('.attente')?.remove()
   }
 }
 
-function startTextBlock() {
-  dropWelcome()
-  videEnFile()
-  finishThinking()
+function startTextBlock(t) {
+  dropWelcome(t)
+  videEnFile(t)
+  finishThinking(t)
   const node = el('div', 'msg assistant md')
-  currentText = { el: node, raw: '' }
-  add(node)
+  t.currentText = { el: node, raw: '' }
+  add(t, node)
 }
 
-let renderQueued = false
-function appendText(chunk) {
-  if (!currentText) startTextBlock()
-  currentText.raw += chunk
-  if (renderQueued) return
-  renderQueued = true
+function appendText(t, chunk) {
+  if (!t.currentText) startTextBlock(t)
+  t.currentText.raw += chunk
+  if (t.renderQueued) return
+  t.renderQueued = true
   requestAnimationFrame(() => {
-    renderQueued = false
-    if (!currentText) return
-    currentText.el.innerHTML = renderMarkdown(currentText.raw)
-    scrollDown()
+    t.renderQueued = false
+    if (!t.currentText) return
+    t.currentText.el.innerHTML = renderMarkdown(t.currentText.raw)
+    scrollDown(t)
   })
 }
 
-function finishText() {
-  if (currentText) {
-    currentText.el.innerHTML = renderMarkdown(currentText.raw)
-    if (!currentText.raw.trim()) currentText.el.remove()
+function finishText(t) {
+  if (t.currentText) {
+    t.currentText.el.innerHTML = renderMarkdown(t.currentText.raw)
+    if (!t.currentText.raw.trim()) t.currentText.el.remove()
   }
-  currentText = null
+  t.currentText = null
 }
 
-function startThinking() {
-  finishText()
-  if (currentThinking) return
+function startThinking(t) {
+  finishText(t)
+  if (t.currentThinking) return
   const node = el('div', 'msg thinking')
-  currentThinking = { el: node, raw: '' }
-  add(node)
+  t.currentThinking = { el: node, raw: '' }
+  add(t, node)
 }
 
-function appendThinking(chunk) {
-  if (!currentThinking) startThinking()
-  currentThinking.raw += chunk
-  currentThinking.el.textContent = currentThinking.raw
-  currentThinking.el.scrollTop = currentThinking.el.scrollHeight
-  scrollDown()
+function appendThinking(t, chunk) {
+  if (!t.currentThinking) startThinking(t)
+  t.currentThinking.raw += chunk
+  t.currentThinking.el.textContent = t.currentThinking.raw
+  t.currentThinking.el.scrollTop = t.currentThinking.el.scrollHeight
+  scrollDown(t)
 }
 
-function finishThinking() {
-  if (currentThinking) currentThinking.el.classList.add('done')
-  currentThinking = null
+function finishThinking(t) {
+  if (t.currentThinking) t.currentThinking.el.classList.add('done')
+  t.currentThinking = null
 }
 
-function addTool(evt) {
-  videEnFile()
-  finishText()
-  finishThinking()
+function addTool(t, evt) {
+  videEnFile(t)
+  finishText(t)
+  finishThinking(t)
   const [glyph, label] = describeTool(evt.name)
   const node = el('div', 'msg tool running')
   const head = el('div', 'head')
@@ -299,45 +312,45 @@ function addTool(evt) {
   body.textContent = formatJson(evt.input)
   node.appendChild(body)
   head.addEventListener('click', () => node.classList.toggle('open'))
-  toolEls.set(evt.id, node)
-  add(node)
+  t.toolEls.set(evt.id, node)
+  add(t, node)
 }
 
-function endTool(evt) {
-  const node = toolEls.get(evt.id)
+function endTool(t, evt, { deplier = true } = {}) {
+  const node = t.toolEls.get(evt.id)
   if (!node) return
   node.classList.remove('running')
   node.classList.add(evt.ok ? 'ok' : 'err')
   const body = node.querySelector('.body')
   if (evt.preview) body.textContent = `${body.textContent}\n\n— — —\n${evt.preview}`
-  if (!evt.ok) node.classList.add('open')
+  if (!evt.ok && deplier) node.classList.add('open')
 }
 
 function formatJson(value) {
   try { return JSON.stringify(value, null, 2) } catch { return String(value) }
 }
 
-function addNote(text, kind) {
-  finishText()
-  add(el('div', `note${kind ? ` ${kind}` : ''}`, text))
+function addNote(t, text, kind) {
+  finishText(t)
+  add(t, el('div', `note${kind ? ` ${kind}` : ''}`, text))
 }
 
 // -------------------------------------------------- progression des files
 
-function majFile(evt) {
-  let carte = fileEls.get(evt.id)
+function majFile(t, evt) {
+  let carte = t.fileEls.get(evt.id)
   if (!carte) {
-    finishText()
+    finishText(t)
     const node = el('div', 'file')
     const tete = el('div', 'tete')
-    const t = el('div', 't', evt.intitule || 'Traitement en cours')
+    const titre = el('div', 't', evt.intitule || 'Traitement en cours')
     const stop = el('button', 'stop', 'Arrêter')
     stop.addEventListener('click', async () => {
       stop.disabled = true
       stop.textContent = 'Arrêt…'
       await api.arreterTraitement(evt.id)
     })
-    tete.append(t, stop)
+    tete.append(titre, stop)
     const d = el('div', 'd', '')
     const barre = el('div', 'barre')
     const jauge = el('i')
@@ -348,8 +361,8 @@ function majFile(evt) {
     chiffres.append(faits, echecs)
     node.append(tete, d, barre, chiffres)
     carte = { node, d, jauge, faits, echecs, stop }
-    fileEls.set(evt.id, carte)
-    add(node)
+    t.fileEls.set(evt.id, carte)
+    add(t, node)
   }
   const pct = evt.total ? Math.round(((evt.faits + evt.echecs) / evt.total) * 100) : 0
   carte.jauge.style.width = `${pct}%`
@@ -361,7 +374,7 @@ function majFile(evt) {
     carte.stop.remove()
     carte.d.textContent = STATUTS[evt.statut] || evt.statut || 'Terminé'
   }
-  scrollDown()
+  scrollDown(t)
 }
 
 const STATUTS = {
@@ -374,9 +387,9 @@ const STATUTS = {
 
 // --------------------------------------------------------------- permissions
 
-function addPermission(evt) {
-  finishText()
-  finishThinking()
+function addPermission(t, evt) {
+  finishText(t)
+  finishThinking(t)
   const [glyph, label] = describeTool(evt.toolName)
   const card = el('div', `msg perm${evt.summary?.danger ? ' danger' : ''}`)
   card.appendChild(el('div', 't', evt.title || `${glyph} ${label} ?`))
@@ -414,19 +427,20 @@ function addPermission(evt) {
   const btns = el('div', 'btns')
   const entree = { id: evt.id }
   const repondre = (a) => {
-    if (!permsEnAttente.includes(entree)) return
-    permsEnAttente.splice(permsEnAttente.indexOf(entree), 1)
+    if (!t.perms.includes(entree)) return
+    t.perms.splice(t.perms.indexOf(entree), 1)
     api.replyPermission(evt.id, a)
     card.classList.add('answered')
     card.classList.remove('active')
     card.appendChild(el('div', 's', a.behavior === 'allow' ? (a.always ? '✓ Toujours autorisé' : '✓ Autorisé') : '✕ Refusé'))
-    refreshActivePerm()
-    input.focus()
+    refreshActivePerm(t)
+    majOnglet(t)
+    if (t === actif) input.focus()
   }
   entree.allow = () => repondre({ behavior: 'allow' })
   entree.deny = () => repondre({ behavior: 'deny', message: 'Refusé par Nicolas.' })
   entree.card = card
-  permsEnAttente.push(entree)
+  t.perms.push(entree)
 
   const oui = el('button', 'primary')
   oui.append(document.createTextNode('Autoriser'), el('kbd', null, '↩'))
@@ -446,20 +460,24 @@ function addPermission(evt) {
   }
   card.appendChild(btns)
   card.appendChild(el('div', 'kb-hint', 'Champ vide : ↩ autorise, esc refuse.'))
-  add(card)
-  refreshActivePerm()
-  scrollDown(true)
+  add(t, card)
+  refreshActivePerm(t)
+  majOnglet(t)
+  scrollDown(t, true)
 }
 
-function refreshActivePerm() {
-  for (const p of permsEnAttente) p.card.classList.remove('active')
-  permsEnAttente[0]?.card.classList.add('active')
+function refreshActivePerm(t) {
+  for (const p of t.perms) p.card.classList.remove('active')
+  t.perms[0]?.card.classList.add('active')
 }
 
 // --------------------------------------------------------------------- état
 
-function setBusy(v) {
-  busy = v
+function setBusy(t, v) {
+  t.busy = v
+  if (!v) t.confirmerFermeture = false
+  majOnglet(t)
+  if (t !== actif) return
   document.body.classList.toggle('busy', v)
   sendBtn.disabled = !v && !input.value.trim()
 }
@@ -473,6 +491,269 @@ function statusComptes() {
   setStatus(`${comptes.length} boîte${comptes.length > 1 ? 's' : ''} connectée${comptes.length > 1 ? 's' : ''}`, 'ok')
 }
 
+/** La ligne d'état suit la conversation affichée. */
+function majStatut(t) {
+  if (t.connexion === 'connecting') setStatus('Connexion…', 'pending')
+  else if (t.connexion && t.connexion !== 'ok') setStatus(`Outils mail : ${t.connexion}`, 'err')
+  else statusComptes()
+}
+
+// ------------------------------------------------------------------ onglets
+
+function creerOnglet({ id, titre = '', sessionId = null }) {
+  const thread = el('div', 'thread')
+  scroll.appendChild(thread)
+  const tab = el('div', 'onglet')
+  tab.setAttribute('role', 'tab')
+  const pastille = el('span', 'pastille')
+  const libelle = el('span', 'titre')
+  const fermer = el('button', 'fermer', '×')
+  fermer.title = 'Fermer la conversation (⌘W)'
+  tab.append(pastille, libelle, fermer)
+  barreOnglets.appendChild(tab)
+
+  /** @type {Onglet} */
+  const t = {
+    id, titre, sessionId, thread, tab,
+    busy: false, stick: true, scrollTop: 0, brouillon: '',
+    currentText: null, currentThinking: null, renderQueued: false,
+    toolEls: new Map(), fileEls: new Map(), perms: [], enFile: [],
+    tampon: null, charge: false, utilise: !!sessionId, nonLu: false, confirmerFermeture: false,
+  }
+  tab.addEventListener('click', () => activer(t))
+  tab.addEventListener('auxclick', (e) => { if (e.button === 1) fermerOnglet(t) })
+  fermer.addEventListener('click', (e) => { e.stopPropagation(); fermerOnglet(t) })
+  onglets.set(id, t)
+  majOnglet(t)
+
+  // Événements arrivés avant que l'onglet n'existe ici (démarrage de sa session).
+  const enAttente = orphelins.get(id)
+  if (enAttente) {
+    orphelins.delete(id)
+    t.tampon = [...enAttente, ...(t.tampon || [])]
+  }
+  return t
+}
+
+function majOnglet(t) {
+  t.tab.querySelector('.titre').textContent = t.titre || 'Nouvelle conversation'
+  t.tab.title = t.titre || 'Nouvelle conversation'
+  t.tab.classList.toggle('actif', t === actif)
+  t.tab.classList.toggle('busy', t.busy)
+  t.tab.classList.toggle('attente', t.perms.length > 0)
+  t.tab.classList.toggle('nonlu', t.nonLu && t !== actif)
+  t.tab.classList.toggle('confirmer', t.confirmerFermeture)
+  t.tab.querySelector('.fermer').title = t.confirmerFermeture
+    ? 'Il travaille encore : clique à nouveau pour fermer'
+    : 'Fermer la conversation (⌘W)'
+  barreOnglets.classList.toggle('seul', onglets.size < 2)
+}
+
+function majOnglets() {
+  for (const t of onglets.values()) majOnglet(t)
+}
+
+function activer(t) {
+  if (!t) return
+  if (actif && actif !== t) {
+    actif.scrollTop = scroll.scrollTop
+    actif.brouillon = input.value
+    actif.thread.classList.remove('active')
+  }
+  const changement = actif !== t
+  actif = t
+  t.nonLu = false
+  t.thread.classList.add('active')
+  if (changement) {
+    input.value = t.brouillon
+    autoGrow()
+    majBouton()
+  }
+  document.body.classList.toggle('busy', t.busy)
+  sendBtn.disabled = !t.busy && !input.value.trim()
+  scroll.scrollTop = t.stick ? scroll.scrollHeight : t.scrollTop
+  majOnglets()
+  majStatut(t)
+  t.tab.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  api.onglets.activer(t.id)
+  chargerFil(t)
+  input.focus()
+}
+
+/** Réaffiche le fil d'une conversation reprise — au premier affichage seulement. */
+async function chargerFil(t) {
+  if (t.charge) return
+  t.charge = true
+  if (!t.sessionId) {
+    showWelcome(t)
+    vider(t)
+    return
+  }
+  t.tampon = t.tampon || []
+  const attente = el('div', 'note', 'Chargement de la conversation…')
+  t.thread.appendChild(attente)
+  let fil = { evenements: [], tronque: false }
+  try { fil = await api.onglets.fil(t.id) } catch {}
+  attente.remove()
+  if (fil.tronque) addNote(t, 'Le début de cette longue conversation est masqué.')
+  rejouer(t, fil.evenements)
+  if (!t.thread.querySelector('.msg')) showWelcome(t)
+  if (!t.titre) {
+    const premier = fil.evenements.find((e) => e.k === 'user')
+    if (premier) { t.titre = titreDe(premier.text); majOnglet(t) }
+  }
+  vider(t)
+  scrollDown(t, true)
+}
+
+function vider(t) {
+  const evts = t.tampon || []
+  t.tampon = null
+  for (const evt of evts) traiter(t, evt)
+}
+
+/** Le fil enregistré, rendu comme pendant le direct. */
+function rejouer(t, evenements) {
+  for (const e of evenements) {
+    if (e.k === 'user') pushUserMessage(t, e.text, false)
+    else if (e.k === 'text') {
+      startTextBlock(t)
+      t.currentText.raw = e.text
+      finishText(t)
+    } else if (e.k === 'tool-use') addTool(t, e)
+    else if (e.k === 'tool-result') endTool(t, e, { deplier: false })
+    else if (e.k === 'note') addNote(t, e.text)
+  }
+  // Un outil resté sans résultat (conversation coupée) ne tourne plus.
+  for (const n of t.thread.querySelectorAll('.tool.running')) n.classList.remove('running')
+}
+
+/** Un onglet vierge et déjà ouvert sert de « nouvelle conversation ». */
+async function nouvelOnglet() {
+  const vierge = [...onglets.values()].find((t) => !t.utilise && !t.busy)
+  if (vierge) {
+    activer(vierge)
+    return vierge
+  }
+  const d = await api.onglets.nouveau()
+  const t = onglets.get(d.id) || creerOnglet(d)
+  activer(t)
+  return t
+}
+
+async function fermerOnglet(t) {
+  if (!t || !onglets.has(t.id)) return
+  // Fermer une conversation qui travaille l'interrompt : on demande un second clic.
+  if (t.busy && !t.confirmerFermeture) {
+    t.confirmerFermeture = true
+    majOnglet(t)
+    if (t === actif) addNote(t, 'Il travaille encore : ⌘W ou × une seconde fois pour fermer quand même.')
+    setTimeout(() => { t.confirmerFermeture = false; if (onglets.has(t.id)) majOnglet(t) }, 4000)
+    return
+  }
+  if (onglets.size === 1) {
+    if (!t.utilise) return
+    const d = await api.onglets.nouveau()
+    creerOnglet(d)
+  }
+  const liste = [...onglets.values()]
+  const i = liste.indexOf(t)
+  onglets.delete(t.id)
+  t.thread.remove()
+  t.tab.remove()
+  api.onglets.fermer(t.id)
+  if (actif === t) {
+    actif = null
+    const reste = [...onglets.values()]
+    activer(reste[Math.min(i, reste.length - 1)])
+  }
+  majOnglets()
+}
+
+function ongletVoisin(sens) {
+  const liste = [...onglets.values()]
+  if (liste.length < 2) return
+  const i = liste.indexOf(actif)
+  activer(liste[(i + sens + liste.length) % liste.length])
+}
+
+// --------------------------------------------------------------- historique
+
+const fmtHeure = new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit' })
+const fmtJour = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' })
+const fmtAnnee = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })
+
+function quand(ms) {
+  const d = new Date(ms)
+  const auj = new Date()
+  const jours = Math.round((new Date(auj.toDateString()) - new Date(d.toDateString())) / 86400000)
+  if (jours === 0) return `aujourd'hui ${fmtHeure.format(d)}`
+  if (jours === 1) return `hier ${fmtHeure.format(d)}`
+  if (d.getFullYear() === auj.getFullYear()) return fmtJour.format(d)
+  return fmtAnnee.format(d)
+}
+
+const sansAccents = (s) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+
+let conversations = []
+
+async function ouvrirHistorique() {
+  settingsPanel.classList.add('hidden')
+  panneauHistorique.classList.remove('hidden')
+  filtreHistorique.value = ''
+  listeHistorique.replaceChildren(el('div', 'vide', 'Chargement…'))
+  filtreHistorique.focus()
+  try { conversations = await api.conversations.liste() } catch { conversations = [] }
+  afficherHistorique()
+}
+
+function fermerHistorique() {
+  panneauHistorique.classList.add('hidden')
+  input.focus()
+}
+
+function basculerHistorique() {
+  if (panneauHistorique.classList.contains('hidden')) ouvrirHistorique()
+  else fermerHistorique()
+}
+
+function afficherHistorique() {
+  const f = sansAccents(filtreHistorique.value.trim())
+  const liste = f ? conversations.filter((c) => sansAccents(c.titre).includes(f)) : conversations
+  listeHistorique.replaceChildren()
+  if (!liste.length) {
+    listeHistorique.appendChild(el('div', 'vide', f ? 'Aucune conversation ne correspond.' : 'Aucune conversation enregistrée pour l\'instant.'))
+    return
+  }
+  for (const c of liste) {
+    const ligne = el('button', 'h-item')
+    ligne.appendChild(el('span', 'h-titre', c.titre))
+    const meta = el('span', 'h-meta', quand(c.date))
+    if (c.onglet) meta.appendChild(el('span', 'h-ouverte', 'ouverte'))
+    ligne.appendChild(meta)
+    ligne.title = c.titre
+    ligne.addEventListener('click', () => ouvrirConversation(c))
+    listeHistorique.appendChild(ligne)
+  }
+}
+
+async function ouvrirConversation(c) {
+  fermerHistorique()
+  const d = await api.conversations.ouvrir({ sessionId: c.sessionId, titre: c.titre })
+  if (!d) return
+  const t = onglets.get(d.id) || creerOnglet(d)
+  activer(t)
+}
+
+filtreHistorique.addEventListener('input', afficherHistorique)
+filtreHistorique.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { e.preventDefault(); fermerHistorique() }
+  if (e.key === 'Enter' && !e.isComposing) {
+    e.preventDefault()
+    listeHistorique.querySelector('.h-item')?.click()
+  }
+})
+
 // -------------------------------------------------------------------- envoi
 
 /**
@@ -481,13 +762,17 @@ function statusComptes() {
  * qui permet de lui demander deux choses coup sur coup.
  */
 function submit(forced) {
+  const t = actif
   const text = (forced ?? input.value).trim()
-  if (!text) return
-  pushUserMessage(text, busy)
-  api.send(text)
+  if (!t || !text) return
+  t.utilise = true
+  if (!t.titre) t.titre = titreDe(text)
+  pushUserMessage(t, text, t.busy)
+  api.send(t.id, text)
   input.value = ''
+  t.brouillon = ''
   autoGrow()
-  setBusy(true)
+  setBusy(t, true)
   majBouton()
 }
 
@@ -504,7 +789,7 @@ function autoGrow() {
 input.addEventListener('input', () => {
   autoGrow()
   majBouton()
-  sendBtn.disabled = busy ? false : !input.value.trim()
+  sendBtn.disabled = actif?.busy ? false : !input.value.trim()
 })
 
 input.addEventListener('keydown', (e) => {
@@ -512,8 +797,16 @@ input.addEventListener('keydown', (e) => {
 })
 
 document.addEventListener('keydown', (e) => {
-  if (document.activeElement?.closest('#form-compte, .mdp')) return
-  const pending = permsEnAttente[0]
+  // ⌘1 … ⌘9 : aller à la conversation n (⌘9 = la dernière), comme dans un navigateur.
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && /^[1-9]$/.test(e.key)) {
+    const liste = [...onglets.values()]
+    const n = Number(e.key)
+    const cible = n === 9 ? liste.at(-1) : liste[n - 1]
+    if (cible) { e.preventDefault(); activer(cible) }
+    return
+  }
+  if (document.activeElement?.closest('#form-compte, .mdp, #historique')) return
+  const pending = actif?.perms[0]
   if (pending) {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !input.value.trim()) {
       e.preventDefault(); e.stopPropagation(); pending.allow(); return
@@ -521,22 +814,22 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); pending.deny(); return }
     return
   }
-  if (e.key === 'Escape' && busy) { e.preventDefault(); api.interrupt() }
+  if (e.key === 'Escape' && !panneauHistorique.classList.contains('hidden')) { e.preventDefault(); fermerHistorique(); return }
+  if (e.key === 'Escape' && actif?.busy) { e.preventDefault(); api.interrupt(actif.id) }
 }, true)
 
 sendBtn.addEventListener('click', () => {
   if (input.value.trim()) submit()
-  else if (busy) api.interrupt()
+  else if (actif?.busy) api.interrupt(actif.id)
 })
 
-document.getElementById('btn-new').addEventListener('click', () => {
-  api.newChat()
-  clearThread()
-  setBusy(false)
-  input.focus()
-})
+document.getElementById('btn-new').addEventListener('click', () => nouvelOnglet())
+document.getElementById('btn-historique').addEventListener('click', () => basculerHistorique())
 
-document.getElementById('btn-settings').addEventListener('click', () => settingsPanel.classList.toggle('hidden'))
+document.getElementById('btn-settings').addEventListener('click', () => {
+  panneauHistorique.classList.add('hidden')
+  settingsPanel.classList.toggle('hidden')
+})
 document.getElementById('btn-workspace').addEventListener('click', () => api.openWorkspace())
 document.getElementById('btn-data').addEventListener('click', () => api.openData())
 
@@ -725,62 +1018,92 @@ document.getElementById('btn-detect').addEventListener('click', async () => {
 
 // -------------------------------------------------------------- événements
 
+function menu(action) {
+  if (action === 'nouvel-onglet') nouvelOnglet()
+  else if (action === 'fermer-onglet') fermerOnglet(actif)
+  else if (action === 'historique') basculerHistorique()
+  else if (action === 'onglet-suivant') ongletVoisin(+1)
+  else if (action === 'onglet-precedent') ongletVoisin(-1)
+  else if (action === 'interrompre' && actif) api.interrupt(actif.id)
+}
+
 api.onEvent((evt) => {
+  if (evt.k === 'menu') return menu(evt.action)
+  if (evt.k === 'comptes') {
+    comptes = evt.comptes
+    renderComptes()
+    statusComptes()
+    return
+  }
+  // Sans onglet précisé (aperçu scripté), l'événement va à la conversation affichée.
+  const t = evt.tab ? onglets.get(evt.tab) : actif
+  if (!t) {
+    if (evt.tab) {
+      const l = orphelins.get(evt.tab) || []
+      if (l.length < 200) l.push(evt)
+      orphelins.set(evt.tab, l)
+    }
+    return
+  }
+  if (t.tampon) { t.tampon.push(evt); return }
+  traiter(t, evt)
+})
+
+function traiter(t, evt) {
   switch (evt.k) {
     case 'ready':
-      if (evt.mail === 'connected') statusComptes()
-      else setStatus(`Outils mail : ${evt.mail}`, 'err')
-      break
-    case 'comptes':
-      comptes = evt.comptes
-      renderComptes()
-      statusComptes()
+      if (evt.sessionId) t.sessionId = evt.sessionId
+      t.connexion = evt.mail === 'connected' ? 'ok' : evt.mail
+      if (t === actif) majStatut(t)
       break
     case 'status':
-      if (evt.state === 'connecting') setStatus('Connexion…', 'pending')
-      else setBusy(evt.state === 'thinking')
+      if (evt.state === 'connecting') {
+        t.connexion = 'connecting'
+        if (t === actif) majStatut(t)
+      } else setBusy(t, evt.state === 'thinking')
       break
-    case 'turn-start': setBusy(true); break
-    case 'queued': setBusy(true); break
-    case 'text-start': startTextBlock(); break
-    case 'text-delta': appendText(evt.text); break
-    case 'thinking-start': startThinking(); break
-    case 'thinking-delta': appendThinking(evt.text); break
-    case 'tool-use': addTool(evt); break
-    case 'tool-result': endTool(evt); break
-    case 'file': majFile(evt); break
-    case 'permission': addPermission(evt); break
+    case 'turn-start': setBusy(t, true); break
+    case 'queued': setBusy(t, true); break
+    case 'text-start': startTextBlock(t); break
+    case 'text-delta': appendText(t, evt.text); break
+    case 'thinking-start': startThinking(t); break
+    case 'thinking-delta': appendThinking(t, evt.text); break
+    case 'tool-use': addTool(t, evt); break
+    case 'tool-result': endTool(t, evt); break
+    case 'file': majFile(t, evt); break
+    case 'permission': addPermission(t, evt); break
     case 'result':
-      finishText(); finishThinking()
-      if (evt.isError && evt.text) addNote(evt.text, 'err')
-      setBusy(false)
+      finishText(t); finishThinking(t)
+      if (evt.isError && evt.text) addNote(t, evt.text, 'err')
+      if (t !== actif) t.nonLu = true
+      setBusy(t, false)
       break
     case 'interrupted':
-      finishText(); finishThinking()
-      addNote('Interrompu. Un traitement en cours peut être repris : demande-moi « reprends le traitement ».')
-      setBusy(false)
+      finishText(t); finishThinking(t)
+      addNote(t, 'Interrompu. Un traitement en cours peut être repris : demande-moi « reprends le traitement ».')
+      setBusy(t, false)
       break
-    case 'note': addNote(evt.text); break
-    case 'resumed': addNote('Reprise de la conversation précédente.'); break
-    case 'cleared': clearThread(); setBusy(false); break
+    case 'note': addNote(t, evt.text); break
+    // Le fil réaffiché suffit : la note ne sert que si rien n'a pu être relu.
+    case 'resumed': if (!t.thread.querySelector('.msg')) addNote(t, 'Reprise de la conversation précédente.'); break
     case 'error':
-      finishText(); finishThinking()
-      addNote(evt.message, 'err')
-      setBusy(false)
+      finishText(t); finishThinking(t)
+      addNote(t, evt.message, 'err')
+      setBusy(t, false)
       break
   }
-})
+}
 
 // ---------------------------------------------------------------- démarrage
 
 const state = await api.init()
 modelSelect.value = state.config.model
-seuilSelect.value = String(state.config.seuilConfirmation ?? 50)
+seuilSelect.value = String(state.config.seuilConfirmation ?? 200)
 comptes = state.comptes || []
 frequentes = state.frequentes || []
 renderComptes()
 statusComptes()
 if (!comptes.length) settingsPanel.classList.remove('hidden')
-showWelcome()
-setBusy(false)
-input.focus()
+const ouverts = state.onglets?.length ? state.onglets : [{ id: 'o1', titre: '', sessionId: null }]
+for (const o of ouverts) creerOnglet(o)
+activer(onglets.get(state.actif) || [...onglets.values()].at(-1))

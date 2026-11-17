@@ -1,7 +1,7 @@
 {
   "name": "assistant-mail",
   "productName": "Assistant Mail",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "private": true,
   "type": "module",
   "description": "Assistant conversationnel qui pilote vos boîtes mail en IMAP/SMTP (Claude Agent SDK)",
